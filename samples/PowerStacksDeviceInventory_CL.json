@@ -1,0 +1,19 @@
+[
+  {
+    "TimeGenerated": "2026-03-05T00:00:00Z",
+    "ComputerName_s": "DESKTOP-SAMPLE01",
+    "ManagedDeviceID_g": "00000000-0000-0000-0000-000000000001",
+    "Microsoft365_b": true,
+    "Warranty_b": true,
+    "DeviceDetails1_s": "",
+    "DeviceDetails2_s": "",
+    "DeviceDetails3_s": "",
+    "DeviceDetails4_s": "",
+    "DeviceDetails5_s": "",
+    "DeviceDetails6_s": "",
+    "DeviceDetails7_s": "",
+    "DeviceDetails8_s": "",
+    "DeviceDetails9_s": "",
+    "DeviceDetails10_s": ""
+  }
+]
