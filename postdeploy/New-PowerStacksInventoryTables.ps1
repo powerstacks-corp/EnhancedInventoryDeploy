@@ -50,19 +50,77 @@ Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
 function Assert-AzModules {
-  $required = @('Az.Accounts','Az.Resources')
-  foreach ($m in $required) {
+  [CmdletBinding()]
+  param(
+    [string[]]$Required = @('Az.Accounts','Az.Resources')
+  )
+
+  # Make sure we can install modules if needed
+  try {
+    $null = Get-PackageProvider -Name NuGet -ListAvailable -ErrorAction Stop
+  } catch {
+    Write-Host "NuGet provider not found. Installing NuGet provider..."
+    Install-PackageProvider -Name NuGet -Force -Scope CurrentUser | Out-Null
+  }
+
+  foreach ($m in $Required) {
     if (-not (Get-Module -ListAvailable -Name $m)) {
-      throw "Required module '$m' is not installed. Install with: Install-Module $m -Scope CurrentUser"
+      Write-Host "Required module '$m' is not installed. Installing..."
+      try {
+        Install-Module -Name $m -Scope CurrentUser -Force -AllowClobber -ErrorAction Stop
+      } catch {
+        throw "Failed to install module '$m'. Error: $($_.Exception.Message)"
+      }
+    }
+
+    # Import so commands are available in this session
+    try {
+      Import-Module -Name $m -Force -ErrorAction Stop
+    } catch {
+      throw "Module '$m' is installed but failed to import. Error: $($_.Exception.Message)"
     }
   }
 }
 
 function Ensure-AzLogin {
+  [CmdletBinding()]
+  param(
+    # Use device code flow when running headless / no embedded browser
+    [switch]$UseDeviceCode
+  )
+
+  $ctx = $null
   try {
-    $null = Get-AzContext -ErrorAction Stop
+    $ctx = Get-AzContext -ErrorAction Stop
   } catch {
-    throw "No Azure context found. Run Connect-AzAccount first."
+    $ctx = $null
+  }
+
+  $needsLogin = $false
+  if (-not $ctx) {
+    $needsLogin = $true
+  } else {
+    # Context exists but token may be missing/expired/unusable; test with a lightweight call
+    try {
+      $null = Get-AzSubscription -ErrorAction Stop | Select-Object -First 1
+    } catch {
+      $needsLogin = $true
+    }
+  }
+
+  if ($needsLogin) {
+    Write-Host "No valid Azure session found. Connecting to Azure..."
+    try {
+      if ($UseDeviceCode) {
+        Connect-AzAccount -UseDeviceAuthentication -ErrorAction Stop | Out-Null
+      } else {
+        Connect-AzAccount -ErrorAction Stop | Out-Null
+      }
+    } catch {
+      throw "Failed to authenticate to Azure. Error: $($_.Exception.Message)"
+    }
+  } else {
+    Write-Host "Azure session detected."
   }
 }
 
