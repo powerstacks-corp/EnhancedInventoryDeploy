@@ -2,8 +2,8 @@ targetScope = 'resourceGroup'
 
 param workspaceName string
 param dcrName string
+param dceName string
 param location string
-param dceResourceId string
 
 param deviceTableName string
 param appTableName string
@@ -18,6 +18,17 @@ param enterpriseAppObjectId string = ''
 
 resource law 'Microsoft.OperationalInsights/workspaces@2022-10-01' existing = {
   name: workspaceName
+}
+
+resource dce 'Microsoft.Insights/dataCollectionEndpoints@2024-03-11' = {
+  name: dceName
+  location: location
+  properties: {
+    description: 'DCE for PowerStacks Enhanced Inventory ingestion'
+    networkAcls: {
+      publicNetworkAccess: 'Enabled'
+    }
+  }
 }
 
 resource deviceTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01' = {
@@ -66,7 +77,7 @@ resource dcr 'Microsoft.Insights/dataCollectionRules@2024-03-11' = {
   ]
   properties: {
     description: 'PowerStacks Enhanced Inventory ingestion via Log Ingestion API'
-    dataCollectionEndpointId: dceResourceId
+    dataCollectionEndpointId: dce.id
 
     destinations: {
       logAnalytics: [
@@ -122,3 +133,4 @@ resource dcrRole 'Microsoft.Authorization/roleAssignments@2022-04-01' = if (!emp
 }
 
 output DcrImmutableId string = dcr.properties.immutableId
+output DceURI string = dce.properties.logsIngestion.endpoint

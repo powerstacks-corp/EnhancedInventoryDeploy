@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "11229526533919583934"
+      "templateHash": "2291163955980463393"
     }
   },
   "parameters": {
@@ -273,6 +273,7 @@
       }
     },
     {
+      "condition": "[equals(parameters('workspaceMode'), 'CreateNew')]",
       "type": "Microsoft.Insights/dataCollectionEndpoints",
       "apiVersion": "2024-03-11",
       "name": "[parameters('dceName')]",
@@ -435,10 +436,10 @@
           "dcrName": {
             "value": "[parameters('dcrName')]"
           },
-          "location": "[if(equals(parameters('workspaceMode'), 'CreateNew'), createObject('value', parameters('location')), createObject('value', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('existingWorkspaceSubscriptionId'), parameters('existingWorkspaceResourceGroup')), 'Microsoft.OperationalInsights/workspaces', parameters('existingWorkspaceName')), '2022-10-01', 'full').location))]",
-          "dceResourceId": {
-            "value": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]"
+          "dceName": {
+            "value": "[parameters('dceName')]"
           },
+          "location": "[if(equals(parameters('workspaceMode'), 'CreateNew'), createObject('value', parameters('location')), createObject('value', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('existingWorkspaceSubscriptionId'), parameters('existingWorkspaceResourceGroup')), 'Microsoft.OperationalInsights/workspaces', parameters('existingWorkspaceName')), '2022-10-01', 'full').location))]",
           "deviceTableName": {
             "value": "[variables('deviceTableName')]"
           },
@@ -468,7 +469,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "1951737592996772422"
+              "templateHash": "9559687573024369100"
             }
           },
           "parameters": {
@@ -478,10 +479,10 @@
             "dcrName": {
               "type": "string"
             },
-            "location": {
+            "dceName": {
               "type": "string"
             },
-            "dceResourceId": {
+            "location": {
               "type": "string"
             },
             "deviceTableName": {
@@ -514,6 +515,18 @@
             "monitoringMetricsPublisherRoleDefinitionId": "[subscriptionResourceId('Microsoft.Authorization/roleDefinitions', '3913510d-42f4-4e42-8a64-420c390055eb')]"
           },
           "resources": [
+            {
+              "type": "Microsoft.Insights/dataCollectionEndpoints",
+              "apiVersion": "2024-03-11",
+              "name": "[parameters('dceName')]",
+              "location": "[parameters('location')]",
+              "properties": {
+                "description": "DCE for PowerStacks Enhanced Inventory ingestion",
+                "networkAcls": {
+                  "publicNetworkAccess": "Enabled"
+                }
+              }
+            },
             {
               "type": "Microsoft.OperationalInsights/workspaces/tables",
               "apiVersion": "2022-10-01",
@@ -557,7 +570,7 @@
               "location": "[parameters('location')]",
               "properties": {
                 "description": "PowerStacks Enhanced Inventory ingestion via Log Ingestion API",
-                "dataCollectionEndpointId": "[parameters('dceResourceId')]",
+                "dataCollectionEndpointId": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]",
                 "destinations": {
                   "logAnalytics": [
                     {
@@ -612,6 +625,7 @@
               },
               "dependsOn": [
                 "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('workspaceName'), parameters('appTableName'))]",
+                "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('workspaceName'), parameters('deviceTableName'))]",
                 "[resourceId('Microsoft.OperationalInsights/workspaces/tables', parameters('workspaceName'), parameters('driverTableName'))]"
               ]
@@ -636,19 +650,20 @@
             "DcrImmutableId": {
               "type": "string",
               "value": "[reference(resourceId('Microsoft.Insights/dataCollectionRules', parameters('dcrName')), '2024-03-11').immutableId]"
+            },
+            "DceURI": {
+              "type": "string",
+              "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2024-03-11').logsIngestion.endpoint]"
             }
           }
         }
-      },
-      "dependsOn": [
-        "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]"
-      ]
+      }
     }
   ],
   "outputs": {
     "DceURI": {
       "type": "string",
-      "value": "[reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2024-03-11').logsIngestion.endpoint]"
+      "value": "[if(equals(parameters('workspaceMode'), 'CreateNew'), reference(resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName')), '2024-03-11').logsIngestion.endpoint, reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('existingWorkspaceSubscriptionId'), parameters('existingWorkspaceResourceGroup')), 'Microsoft.Resources/deployments', 'existingWorkspaceTablesAndDcr'), '2025-04-01').outputs.DceURI.value)]"
     },
     "DcrImmutableId": {
       "type": "string",

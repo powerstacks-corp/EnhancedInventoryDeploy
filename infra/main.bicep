@@ -144,10 +144,11 @@ var workspaceNameEffective = workspaceMode == 'CreateNew' ? lawNew.name : lawExi
 var effectiveLocation      = workspaceMode == 'CreateNew' ? location : lawExisting!.location
 
 // ==================================================
-// DCE (always created in the deployment RG)
+// DCE (CreateNew only – UseExisting creates its own DCE in the workspace RG
+// so that DCE and DCR are co-located in the same region)
 // ==================================================
 
-resource dce 'Microsoft.Insights/dataCollectionEndpoints@2024-03-11' = {
+resource dce 'Microsoft.Insights/dataCollectionEndpoints@2024-03-11' = if (workspaceMode == 'CreateNew') {
   name: dceName
   location: location
   properties: {
@@ -208,7 +209,7 @@ resource dcrNew 'Microsoft.Insights/dataCollectionRules@2024-03-11' = if (worksp
   ]
   properties: {
     description: 'PowerStacks Enhanced Inventory ingestion via Log Ingestion API'
-    dataCollectionEndpointId: dce.id
+    dataCollectionEndpointId: dce!.id
 
     destinations: {
       logAnalytics: [
@@ -275,8 +276,8 @@ module existingWorkspaceTablesAndDcr 'modules/workspaceTablesAndDcr.bicep' = if 
     workspaceName: existingWorkspaceName
 
     dcrName: dcrName
+    dceName: dceName
     location: effectiveLocation
-    dceResourceId: dce.id
 
     deviceTableName: deviceTableName
     appTableName: appTableName
@@ -298,7 +299,9 @@ var dcrImmutableIdNew = workspaceMode == 'CreateNew' ? dcrNew!.properties.immuta
 var dcrImmutableIdExisting = workspaceMode == 'UseExisting' ? existingWorkspaceTablesAndDcr!.outputs.DcrImmutableId : ''
 
 
-output DceURI string = dce.properties.logsIngestion.endpoint
+output DceURI string = workspaceMode == 'CreateNew'
+  ? dce!.properties.logsIngestion.endpoint
+  : existingWorkspaceTablesAndDcr!.outputs.DceURI
 
 output DcrImmutableId string = workspaceMode == 'CreateNew'
   ? dcrImmutableIdNew
