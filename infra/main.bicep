@@ -11,7 +11,7 @@ targetScope = 'resourceGroup'
 ])
 param workspaceMode string = 'CreateNew'
 
-@description('Deployment location. This should not be changed and defaults to the resource group location.')
+@description('Deployment location. Only used when creating a new workspace. When using an existing workspace, the location is automatically derived from the workspace.')
 param location string = resourceGroup().location
 
 // ---------------------------
@@ -141,6 +141,7 @@ resource lawExisting 'Microsoft.OperationalInsights/workspaces@2022-10-01' exist
 
 var workspaceResourceId    = workspaceMode == 'CreateNew' ? lawNew.id : lawExisting.id
 var workspaceNameEffective = workspaceMode == 'CreateNew' ? lawNew.name : lawExisting.name
+var effectiveLocation      = workspaceMode == 'CreateNew' ? location : lawExisting!.location
 
 // ==================================================
 // DCE (always created in the deployment RG)
@@ -274,7 +275,7 @@ module existingWorkspaceTablesAndDcr 'modules/workspaceTablesAndDcr.bicep' = if 
     workspaceName: existingWorkspaceName
 
     dcrName: dcrName
-    location: location
+    location: effectiveLocation
     dceResourceId: dce.id
 
     deviceTableName: deviceTableName

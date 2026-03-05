@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "1214882488430417247"
+      "templateHash": "11229526533919583934"
     }
   },
   "parameters": {
@@ -24,7 +24,7 @@
       "type": "string",
       "defaultValue": "[resourceGroup().location]",
       "metadata": {
-        "description": "Deployment location. This should not be changed and defaults to the resource group location."
+        "description": "Deployment location. Only used when creating a new workspace. When using an existing workspace, the location is automatically derived from the workspace."
       }
     },
     "newWorkspaceName": {
@@ -435,9 +435,7 @@
           "dcrName": {
             "value": "[parameters('dcrName')]"
           },
-          "location": {
-            "value": "[parameters('location')]"
-          },
+          "location": "[if(equals(parameters('workspaceMode'), 'CreateNew'), createObject('value', parameters('location')), createObject('value', reference(extensionResourceId(format('/subscriptions/{0}/resourceGroups/{1}', parameters('existingWorkspaceSubscriptionId'), parameters('existingWorkspaceResourceGroup')), 'Microsoft.OperationalInsights/workspaces', parameters('existingWorkspaceName')), '2022-10-01', 'full').location))]",
           "dceResourceId": {
             "value": "[resourceId('Microsoft.Insights/dataCollectionEndpoints', parameters('dceName'))]"
           },
@@ -470,7 +468,7 @@
             "_generator": {
               "name": "bicep",
               "version": "0.39.26.7824",
-              "templateHash": "11987336974179414373"
+              "templateHash": "1951737592996772422"
             }
           },
           "parameters": {

@@ -46,7 +46,8 @@
       "newWorkspaceName": "[basics('newWorkspaceName')]",
       "existingWorkspaceSubscriptionId": "[subscription().subscriptionId]",
       "existingWorkspaceResourceGroup": "[basics('existingWorkspaceResourceGroup')]",
-      "existingWorkspaceName": "[basics('existingWorkspaceName')]"
+      "existingWorkspaceName": "[basics('existingWorkspaceName')]",
+      "location": "[location()]"
     }
   }
 }
