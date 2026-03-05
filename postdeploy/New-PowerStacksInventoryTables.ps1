@@ -147,7 +147,7 @@ function New-OrUpdate-WorkspaceTable {
   } | ConvertTo-Json -Depth 20
 
   Write-Host "Creating/updating table: $TableName"
-  $null = Invoke-AzRestMethod -Method PUT -Path "$resourceId?api-version=$apiVersion" -Payload $body
+  $null = Invoke-AzRestMethod -Method PUT -Path "${resourceId}?api-version=${apiVersion}" -Payload $body
 }
 
 Assert-AzModules
