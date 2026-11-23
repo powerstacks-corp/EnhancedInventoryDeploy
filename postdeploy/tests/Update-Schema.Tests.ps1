@@ -1,0 +1,462 @@
+#Requires -Version 5.1
+# Offline tests for Update-PowerStacksAppInventorySchema.ps1. A fake 'az' function stands in for
+# Azure Resource Manager: it serves the fixture JSON, records every write, and can fail a call.
+# Run on both hosts:
+#   powershell.exe -NoProfile -Command "Import-Module Pester -RequiredVersion 5.7.1; Invoke-Pester -Path postdeploy\tests -Output Detailed"
+#   pwsh -NoProfile -Command "Import-Module Pester -RequiredVersion 5.7.1; Invoke-Pester -Path postdeploy\tests -Output Detailed"
+
+BeforeAll {
+  $script:Updater  = Join-Path $PSScriptRoot '..\Update-PowerStacksAppInventorySchema.ps1'
+  $script:Fixtures = Join-Path $PSScriptRoot 'fixtures'
+  $script:RepoRoot = Join-Path $PSScriptRoot '..\..'
+  $script:Sub   = '00000000-0000-0000-0000-000000000000'
+  $script:DcrId = "/subscriptions/$Sub/resourceGroups/rg-inventory/providers/Microsoft.Insights/dataCollectionRules/dcr-PowerStacksInventory"
+  $script:ArchiveWs = "/subscriptions/$Sub/resourceGroups/rg-archive/providers/Microsoft.OperationalInsights/workspaces/law-archive"
+  $script:Utf8  = New-Object System.Text.UTF8Encoding($false)
+
+  # The 22 App Usage columns, in order (spec "Device-Level Columns", D43, D44).
+  $script:NewColumns = @(
+    @{ name = 'AppUsageEnabled_b'; type = 'boolean' }, @{ name = 'WatchingSince_t'; type = 'datetime' },
+    @{ name = 'AppUsageScriptVersion_s'; type = 'string' }, @{ name = 'MappingsVersion_s'; type = 'string' },
+    @{ name = 'CustomerMappingsHash_s'; type = 'string' }, @{ name = 'UnmatchedExeCount_d'; type = 'real' },
+    @{ name = 'ProfilesFound_d'; type = 'real' }, @{ name = 'ProfilesRead_d'; type = 'real' },
+    @{ name = 'AppUsageCollectionStatus_s'; type = 'string' }
+  )
+  foreach ($i in 1..10) { $script:NewColumns += @{ name = "ExeUsage$($i)_s"; type = 'string' } }
+  $script:NewColumns += @{ name = 'RunId_g'; type = 'string' }, @{ name = 'RowIndex_d'; type = 'real' }, @{ name = 'RowCount_d'; type = 'real' }
+
+  # JSON reads that keep date-like strings as strings on every host (PowerShell 7 converts them otherwise),
+  # so a date rewritten by the updater shows up as a difference instead of being hidden on both sides.
+  function global:ConvertFrom-TestJson([string]$Text) {
+    if ((Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')) { return ($Text | ConvertFrom-Json -DateKind String) }
+    return ($Text | ConvertFrom-Json)
+  }
+
+  function script:Read-Fixture([string]$Name) { [IO.File]::ReadAllText((Join-Path $script:Fixtures $Name), [Text.Encoding]::UTF8) }
+
+  # Deep comparison of parsed JSON, independent of the updater's code. Returns the differing paths.
+  function script:Compare-Json($A, $B, [string]$Path = '$') {
+    if ($null -eq $A -or $null -eq $B) { if (-not ($null -eq $A -and $null -eq $B)) { return "$Path : null vs value" } ; return }
+    if ($A -is [string] -or $A -is [ValueType]) {
+      if ($A.GetType() -ne $B.GetType() -or -not $A.Equals($B)) { return "$Path : '$A' vs '$B'" }
+      return
+    }
+    if ($A -is [Array]) {
+      if ($B -isnot [Array]) { return "$Path : array vs non-array" }
+      if ($A.Count -ne $B.Count) { return "$Path : $($A.Count) items vs $($B.Count)" }
+      for ($i = 0; $i -lt $A.Count; $i++) { Compare-Json $A[$i] $B[$i] "$Path[$i]" }
+      return
+    }
+    $an = @($A.PSObject.Properties | ForEach-Object Name); $bn = @($B.PSObject.Properties | ForEach-Object Name)
+    foreach ($n in $an) { if ($bn -cnotcontains $n) { "$Path.$n : missing on the right" } }
+    foreach ($n in $bn) { if ($an -cnotcontains $n) { "$Path.$n : missing on the left" } }
+    foreach ($n in $an) { if ($bn -ccontains $n) { Compare-Json $A.$n $B.$n "$Path.$n" } }
+  }
+
+  function script:Remove-ReadOnly($Dcr) {
+    # What a PUT must not send: server-set properties, and the server-set identity values.
+    foreach ($p in 'id', 'name', 'type', 'etag', 'systemData') { $Dcr.PSObject.Properties.Remove($p) }
+    foreach ($p in 'immutableId', 'provisioningState', 'metadata', 'endpoints') { $Dcr.properties.PSObject.Properties.Remove($p) }
+    if ($Dcr.PSObject.Properties['identity']) {
+      foreach ($p in 'principalId', 'tenantId') { $Dcr.identity.PSObject.Properties.Remove($p) }
+      if ($Dcr.identity.PSObject.Properties['userAssignedIdentities']) {
+        foreach ($u in @($Dcr.identity.userAssignedIdentities.PSObject.Properties)) { $u.Value = [pscustomobject]@{} }
+      }
+    }
+    $Dcr
+  }
+
+  function script:Get-ExpectedPut([string]$DcrText) {
+    # The fixture as read, minus server-set values, plus the missing App Usage columns appended to the App Inventory stream.
+    $d = Remove-ReadOnly (ConvertFrom-TestJson $DcrText)
+    $s = $d.properties.streamDeclarations.'Custom-PowerStacksAppInventory_CL'
+    $have = @($s.columns | ForEach-Object name)
+    $s.columns = @($s.columns) + @($script:NewColumns | Where-Object { $have -notcontains $_.name } | ForEach-Object { [pscustomobject]@{ name = $_.name; type = $_.type } })
+    $d
+  }
+
+  function script:Get-TableWithAllColumns([string]$TableText, [string]$Id) {
+    # A table fixture with the 22 columns already added, under another resource ID.
+    $t = ConvertFrom-TestJson $TableText
+    $t.id = $Id
+    $t.properties.schema.columns = @($t.properties.schema.columns) + @($script:NewColumns | ForEach-Object {
+      [pscustomobject]@{ isDefaultDisplay = $false; isHidden = $false; name = $_.name; type = $_.type } })
+    $t | ConvertTo-Json -Depth 100
+  }
+
+  function script:New-FakeArm([string]$TableFixture, [string]$DcrFixture) {
+    # The fixtures are ASCII and escape their non-ASCII characters; serve those as real UTF-8, as Azure does.
+    $served = (Read-Fixture $DcrFixture).Replace('\u00e9', [string][char]0xE9)
+    $tableText = Read-Fixture $TableFixture
+    $global:FakeArm = @{
+      TableId = (ConvertFrom-TestJson $tableText).id
+      DcrId  = (ConvertFrom-TestJson $served).id
+      table  = $tableText
+      dcr    = $served
+      ServedDcr = $served
+      Extra  = @{}   # other workspaces' tables: resource ID => JSON
+      Calls  = New-Object System.Collections.Generic.List[string]
+      Bodies = New-Object System.Collections.Generic.List[object]
+      Fail   = @()
+    }
+  }
+
+  function script:Set-FakeDcr([scriptblock]$Change) {
+    # Edits the served DCR in place, for shapes the fixtures don't hold.
+    $d = ConvertFrom-TestJson $global:FakeArm.dcr
+    & $Change $d
+    $global:FakeArm.dcr = $d | ConvertTo-Json -Depth 100
+    $global:FakeArm.ServedDcr = $global:FakeArm.dcr
+  }
+
+  function script:Invoke-Updater([hashtable]$Extra = @{}) {
+    $p = @{ SubscriptionId = $script:Sub; ResourceGroupName = 'rg-inventory'; WorkspaceName = 'law-inventory'; DcrResourceId = $script:DcrId; BackupDirectory = $script:BackupDir }
+    foreach ($k in $Extra.Keys) { $p[$k] = $Extra[$k] }
+    (& $script:Updater @p 6>&1 3>&1 | Out-String)
+  }
+
+  function script:Get-Writes { @($global:FakeArm.Calls | Where-Object { $_ -notlike 'get *' }) }
+
+  # Fake az: 'account show' and 'rest' GET/PATCH/PUT against the in-memory tables and DCR.
+  function global:az {
+    $a = @($args)
+    $arm = $global:FakeArm
+    if ($a[0] -eq 'account') {
+      Write-Error 'WARNING: a simulated az warning on stderr'   # stderr alone must not count as failure
+      $global:LASTEXITCODE = 0
+      return
+    }
+    $method = $a[[Array]::IndexOf($a, '--method') + 1]
+    $url    = $a[[Array]::IndexOf($a, '--url') + 1]
+    $path   = $url.Split('?')[0]
+    # Only the fixture's tables and DCR exist; any other URL is a 404. Tables in other workspaces are 'table@<workspace>'.
+    $kind = if ($path -eq $arm.TableId) { 'table' }
+            elseif ($arm.Extra.ContainsKey($path)) { 'table@' + $path.Split('/')[8] }
+            elseif ($path -eq $arm.DcrId) { 'dcr' } else { 'unknown' }
+    $arm.Calls.Add("$method $kind")
+    if ($kind -eq 'unknown') { Write-Output "ERROR: (ResourceNotFound) $url"; $global:LASTEXITCODE = 3; return }
+    if ($arm.Fail -contains "$method $kind") {
+      Write-Output "ERROR: (InvalidPayload) simulated failure of $method $kind"
+      $global:LASTEXITCODE = 1
+      return
+    }
+    $current = if ($kind -like 'table@*') { $arm.Extra[$path] } else { $arm[$kind] }
+    $utf8 = New-Object System.Text.UTF8Encoding($false)
+    if ($method -eq 'get') {
+      [IO.File]::WriteAllText($a[[Array]::IndexOf($a, '--output-file') + 1], $current, $utf8)
+    } else {
+      $bodyText = [IO.File]::ReadAllText($a[[Array]::IndexOf($a, '--body') + 1].Substring(1), [Text.Encoding]::UTF8)
+      $arm.Bodies.Add([pscustomobject]@{ Call = "$method $kind"; Text = $bodyText })
+      $old = ConvertFrom-TestJson $current
+      $body = ConvertFrom-TestJson $bodyText
+      if ($kind -like 'table*') {
+        # PATCH: the column list is replaced; the server adds its read-only column properties back.
+        $old.properties.schema.columns = @($body.properties.schema.columns | ForEach-Object {
+          [pscustomobject]@{ isDefaultDisplay = $false; isHidden = $false; name = $_.name; type = $_.type } })
+        $new = $old | ConvertTo-Json -Depth 100
+        if ($kind -eq 'table') { $arm.table = $new } else { $arm.Extra[$path] = $new }
+      } else {
+        # PUT: the body replaces the DCR; the server adds its read-only properties and identity values back.
+        foreach ($p in 'id', 'name', 'type', 'systemData') { $body | Add-Member -NotePropertyName $p -NotePropertyValue $old.$p }
+        $body | Add-Member -NotePropertyName etag -NotePropertyValue '"99999999-0000-0100-0000-000000000000"'
+        foreach ($p in 'immutableId', 'provisioningState', 'metadata', 'endpoints') {
+          if ($old.properties.PSObject.Properties[$p]) { $body.properties | Add-Member -NotePropertyName $p -NotePropertyValue $old.properties.$p }
+        }
+        if ($old.PSObject.Properties['identity'] -and $body.PSObject.Properties['identity']) {
+          foreach ($p in 'principalId', 'tenantId') {
+            if ($old.identity.PSObject.Properties[$p]) { $body.identity | Add-Member -NotePropertyName $p -NotePropertyValue $old.identity.$p -Force }
+          }
+          if ($old.identity.PSObject.Properties['userAssignedIdentities']) {
+            foreach ($u in @($old.identity.userAssignedIdentities.PSObject.Properties)) {
+              if ($body.identity.userAssignedIdentities.PSObject.Properties[$u.Name]) { $body.identity.userAssignedIdentities.($u.Name) = $u.Value }
+            }
+          }
+        }
+        $arm.dcr = $body | ConvertTo-Json -Depth 100
+      }
+    }
+    $global:LASTEXITCODE = 0
+  }
+}
+
+AfterAll {
+  Remove-Item Function:\global:az -ErrorAction SilentlyContinue
+  Remove-Item Function:\global:ConvertFrom-TestJson -ErrorAction SilentlyContinue
+  Remove-Variable FakeArm -Scope Global -ErrorAction SilentlyContinue
+}
+
+Describe 'Update-PowerStacksAppInventorySchema' {
+  BeforeEach {
+    $script:BackupDir = Join-Path $TestDrive ([guid]::NewGuid().ToString('N'))
+    New-Item -ItemType Directory -Path $script:BackupDir | Out-Null
+  }
+
+  Context 'Preservation' {
+    It 'PUTs the <Dcr> DCR exactly as read except for the 22 appended columns' -ForEach @(
+      @{ Dcr = 'rich-dcr-before.json' }       # three streams, custom transforms, two destinations, DCE, user-assigned identity, date-like tags
+      @{ Dcr = 'lab-dcr-before.json' }        # the lab DCR before the update, sanitized
+      @{ Dcr = 'identity-dcr-before.json' }   # system- and user-assigned identity, date-like description and tag
+    ) {
+      New-FakeArm 'lab-table-before.json' $Dcr
+      $out = Invoke-Updater
+      Get-Writes | Should -Be @('patch table', 'put dcr')
+
+      $put = $global:FakeArm.Bodies | Where-Object Call -eq 'put dcr'
+      $diff = @(Compare-Json (Get-ExpectedPut (Read-Fixture $Dcr)) (ConvertFrom-TestJson $put.Text))
+      $diff | Should -BeNullOrEmpty
+
+      $out | Should -Match 'DCR: added 22 columns'
+      $out | Should -Match 'Wait 30 minutes before you turn metering on'
+    }
+
+    It 'sends date-like strings in the <Dcr> DCR back character for character' -ForEach @(
+      @{ Dcr = 'rich-dcr-before.json'; Expect = @('"CreatedOn":"2024-05-01T12:34:56.000Z"', '"ReviewedAt":"2024-01-01T10:00:00.1234567+02:00"') }
+      @{ Dcr = 'identity-dcr-before.json'; Expect = @('"description":"2024-01-01T10:00:00.1234567+02:00"', '"CreatedOn":"2024-05-01T12:34:56.000Z"') }
+    ) {
+      New-FakeArm 'lab-table-before.json' $Dcr
+      Invoke-Updater | Out-Null
+      $putText = ($global:FakeArm.Bodies | Where-Object Call -eq 'put dcr').Text
+      foreach ($e in $Expect) { $putText.Contains($e) | Should -BeTrue -Because "the PUT body must contain $e" }
+    }
+
+    It 'sends each user-assigned identity as {} and no server-set identity IDs' {
+      New-FakeArm 'lab-table-before.json' 'identity-dcr-before.json'
+      Invoke-Updater | Out-Null
+      $put = ConvertFrom-TestJson ($global:FakeArm.Bodies | Where-Object Call -eq 'put dcr').Text
+      @($put.identity.PSObject.Properties | ForEach-Object Name) | Should -Be @('type', 'userAssignedIdentities')
+      foreach ($u in @($put.identity.userAssignedIdentities.PSObject.Properties)) { @($u.Value.PSObject.Properties).Count | Should -Be 0 }
+      @($put.identity.userAssignedIdentities.PSObject.Properties).Count | Should -Be 2
+    }
+
+    It 'sends the table its existing columns plus the 22, without the read-only column properties' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      Invoke-Updater | Out-Null
+      $patch = ConvertFrom-TestJson ($global:FakeArm.Bodies | Where-Object Call -eq 'patch table').Text
+      $existing = @((ConvertFrom-TestJson (Read-Fixture 'lab-table-before.json')).properties.schema.columns | ForEach-Object { [pscustomobject]@{ name = $_.name; type = $_.type } })
+      $expected = [pscustomobject]@{ properties = [pscustomobject]@{ schema = [pscustomobject]@{
+        name = 'PowerStacksAppInventory_CL'
+        columns = $existing + @($script:NewColumns | ForEach-Object { [pscustomobject]@{ name = $_.name; type = $_.type } }) } } }
+      @(Compare-Json $expected $patch) | Should -BeNullOrEmpty
+    }
+
+    It 'saves the table and DCR exactly as read, as time-stamped table and DCR backup files' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      Invoke-Updater | Out-Null
+      $files = @(Get-ChildItem $script:BackupDir | ForEach-Object Name | Sort-Object)
+      $files.Count | Should -Be 2
+      $files[0] | Should -Match '^backup-\d{14}-dcr\.json$'
+      $files[1] | Should -Match '^backup-\d{14}-table\.json$'
+      [IO.File]::ReadAllText((Join-Path $script:BackupDir $files[0])) | Should -BeExactly $global:FakeArm.ServedDcr
+      [IO.File]::ReadAllText((Join-Path $script:BackupDir $files[1])) | Should -BeExactly (Read-Fixture 'lab-table-before.json')
+    }
+  }
+
+  Context 'Idempotence' {
+    It 'a second run changes nothing and sends no PATCH or PUT, but still backs up what it read' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      Invoke-Updater | Out-Null
+      $tableAfterFirst = $global:FakeArm.table; $dcrAfterFirst = $global:FakeArm.dcr
+      $global:FakeArm.Calls.Clear()
+      Remove-Item (Join-Path $script:BackupDir '*')
+
+      $out = Invoke-Updater
+      @(Get-ChildItem $script:BackupDir -Filter 'backup-*.json').Count | Should -Be 2
+      Get-Writes | Should -BeNullOrEmpty
+      $global:FakeArm.table | Should -BeExactly $tableAfterFirst
+      $global:FakeArm.dcr | Should -BeExactly $dcrAfterFirst
+      $out | Should -Match 'Nothing to add'
+    }
+  }
+
+  Context 'Partial upgrade' {
+    It 'fails loudly when the DCR PUT fails, and a re-run completes the DCR only' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $global:FakeArm.Fail = @('put dcr')
+      { Invoke-Updater } | Should -Throw '*DCR update (PUT) failed (az exit code 1)*simulated failure*'
+      $global:FakeArm.dcr | Should -BeExactly $global:FakeArm.ServedDcr
+      @((ConvertFrom-TestJson $global:FakeArm.table).properties.schema.columns).Count | Should -Be (13 + 22)
+
+      $global:FakeArm.Fail = @(); $global:FakeArm.Calls.Clear(); $global:FakeArm.Bodies.Clear()
+      $out = Invoke-Updater
+      Get-Writes | Should -Be @('put dcr')
+      $out | Should -Match 'Table: nothing to add'
+      @(Compare-Json (Get-ExpectedPut (Read-Fixture 'rich-dcr-before.json')) (ConvertFrom-TestJson $global:FakeArm.Bodies[0].Text)) | Should -BeNullOrEmpty
+    }
+
+    It 'does not touch the DCR when the table PATCH fails' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $global:FakeArm.Fail = @('patch table')
+      { Invoke-Updater } | Should -Throw '*Table update (PATCH) failed*'
+      Get-Writes | Should -Be @('patch table')
+      $global:FakeArm.dcr | Should -BeExactly $global:FakeArm.ServedDcr
+    }
+
+    It 'fails loudly, before any write, when a read fails' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $global:FakeArm.Fail = @('get dcr')
+      { Invoke-Updater } | Should -Throw '*DCR read failed*'
+      Get-Writes | Should -BeNullOrEmpty
+      @(Get-ChildItem $script:BackupDir).Count | Should -Be 0
+    }
+  }
+
+  Context 'Rollback' {
+    It 'restores the backup body exactly, after backing up the current DCR' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      Invoke-Updater | Out-Null
+      $backup = Get-ChildItem $script:BackupDir -Filter 'backup-*-dcr.json' | Select-Object -First 1
+      $afterUpdate = $global:FakeArm.dcr
+      $global:FakeArm.Calls.Clear(); $global:FakeArm.Bodies.Clear()
+      Start-Sleep -Seconds 1   # new backup time stamp
+
+      $out = Invoke-Updater @{ RollbackFrom = $backup.FullName }
+      Get-Writes | Should -Be @('put dcr')
+      $expected = Remove-ReadOnly (ConvertFrom-TestJson (Read-Fixture 'rich-dcr-before.json'))
+      @(Compare-Json $expected (ConvertFrom-TestJson $global:FakeArm.Bodies[0].Text)) | Should -BeNullOrEmpty
+      @(Compare-Json $expected (Remove-ReadOnly (ConvertFrom-TestJson $global:FakeArm.dcr))) | Should -BeNullOrEmpty
+      $out | Should -Match 'Rolled back the DCR'
+      $out | Should -Match 'table columns stay in place'
+
+      $preRollback = Get-ChildItem $script:BackupDir -Filter 'backup-*-dcr.json' | Where-Object Name -ne $backup.Name
+      @($preRollback).Count | Should -Be 1
+      [IO.File]::ReadAllText($preRollback.FullName) | Should -BeExactly $afterUpdate
+    }
+
+    It 'refuses a backup of another resource, and changes nothing' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $tableBackup = Join-Path $script:BackupDir 'backup-20260101000000-table.json'
+      [IO.File]::WriteAllText($tableBackup, (Read-Fixture 'lab-table-before.json'), $script:Utf8)
+      { Invoke-Updater @{ RollbackFrom = $tableBackup } } | Should -Throw '*is not a DCR backup*'
+
+      $otherDcr = Join-Path $script:BackupDir 'backup-20260101000000-dcr.json'
+      [IO.File]::WriteAllText($otherDcr, ((Read-Fixture 'rich-dcr-before.json') -replace 'dcr-PowerStacksInventory"', 'dcr-Other"'), $script:Utf8)
+      { Invoke-Updater @{ RollbackFrom = $otherDcr } } | Should -Throw '*is a backup of*dcr-Other*'
+      Get-Writes | Should -BeNullOrEmpty
+    }
+
+    It 'fails loudly when the rollback PUT fails' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $file = Join-Path $script:BackupDir 'backup-20260101000000-dcr.json'
+      [IO.File]::WriteAllText($file, (Read-Fixture 'lab-dcr-before.json'), $script:Utf8)
+      $global:FakeArm.Fail = @('put dcr')
+      { Invoke-Updater @{ RollbackFrom = $file } } | Should -Throw '*DCR rollback (PUT) failed*'
+    }
+  }
+
+  Context 'Partly updated DCR and a test table (shape of the lab Phase 0 test resources)' {
+    It 'adds only the missing columns to the table named by -TableName and to the stream, preserving the rest' {
+      New-FakeArm 'test-table-partial.json' 'test-dcr-partial.json'
+      $testDcrId = "/subscriptions/$script:Sub/resourceGroups/rg-test/providers/Microsoft.Insights/dataCollectionRules/dcr-test"
+      $out = Invoke-Updater @{ DcrResourceId = $testDcrId; TableName = 'PowerStacksAppInventoryTest_CL' }
+      Get-Writes | Should -Be @('patch table', 'put dcr')
+      $out | Should -Match 'Table: added 3 columns'
+      $out | Should -Match 'DCR: added 3 columns'
+
+      $patch = ConvertFrom-TestJson ($global:FakeArm.Bodies | Where-Object Call -eq 'patch table').Text
+      $patch.properties.schema.name | Should -BeExactly 'PowerStacksAppInventoryTest_CL'
+      @($patch.properties.schema.columns | Select-Object -Last 3 | ForEach-Object { "$($_.name):$($_.type)" }) | Should -Be @('RunId_g:string', 'RowIndex_d:real', 'RowCount_d:real')
+      $put = ConvertFrom-TestJson ($global:FakeArm.Bodies | Where-Object Call -eq 'put dcr').Text
+      @(Compare-Json (Get-ExpectedPut (Read-Fixture 'test-dcr-partial.json')) $put) | Should -BeNullOrEmpty
+    }
+
+    It 'refuses to run when the DCR writes the stream to a table other than -TableName, before reading any table' {
+      New-FakeArm 'test-table-partial.json' 'test-dcr-partial.json'
+      $testDcrId = "/subscriptions/$script:Sub/resourceGroups/rg-test/providers/Microsoft.Insights/dataCollectionRules/dcr-test"
+      { Invoke-Updater @{ DcrResourceId = $testDcrId } } | Should -Throw "*a data flow writes it to 'Custom-PowerStacksAppInventoryTest_CL', not to table 'PowerStacksAppInventory_CL'*"
+      @($global:FakeArm.Calls) | Should -Be @('get dcr')
+    }
+  }
+
+  Context 'App Inventory stream sent to more than one workspace' {
+    It 'refuses, before any write, when <Case> reaches a workspace whose table lacks the columns' -ForEach @(
+      @{ Case = 'one flow with la-primary and la-archive' }
+      @{ Case = 'a second flow to la-archive' }
+    ) {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $global:FakeArm.Extra["$script:ArchiveWs/tables/PowerStacksAppInventory_CL"] = (Read-Fixture 'lab-table-before.json')
+      if ($Case -like 'one flow*') {
+        Set-FakeDcr { param($d) $d.properties.dataFlows[1].destinations = @('la-primary', 'la-archive') }
+      } else {
+        Set-FakeDcr { param($d) $d.properties.dataFlows = @($d.properties.dataFlows) + [pscustomobject]@{
+          destinations = @('la-archive'); outputStream = 'Custom-PowerStacksAppInventory_CL'; streams = @('Custom-PowerStacksAppInventory_CL'); transformKql = 'source' } }
+      }
+      { Invoke-Updater } | Should -Throw "*also sends 'Custom-PowerStacksAppInventory_CL' to $script:ArchiveWs*-TableOnly*Nothing was changed*"
+      Get-Writes | Should -BeNullOrEmpty
+      @(Get-ChildItem $script:BackupDir).Count | Should -Be 0
+    }
+
+    It 'updates the table and the DCR once the other workspace''s table has the columns' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $archiveTable = "$script:ArchiveWs/tables/PowerStacksAppInventory_CL"
+      $global:FakeArm.Extra[$archiveTable] = Get-TableWithAllColumns (Read-Fixture 'lab-table-before.json') $archiveTable
+      Set-FakeDcr { param($d) $d.properties.dataFlows[1].destinations = @('la-primary', 'la-archive') }
+      Invoke-Updater | Out-Null
+      Get-Writes | Should -Be @('patch table', 'put dcr')
+      @(Compare-Json (Get-ExpectedPut $global:FakeArm.ServedDcr) (ConvertFrom-TestJson $global:FakeArm.Bodies[1].Text)) | Should -BeNullOrEmpty
+    }
+
+    It '-TableOnly adds the columns to that workspace''s table and leaves the DCR alone' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $archiveTable = "$script:ArchiveWs/tables/PowerStacksAppInventory_CL"
+      $global:FakeArm.Extra[$archiveTable] = (Read-Fixture 'lab-table-before.json')
+      Set-FakeDcr { param($d) $d.properties.dataFlows[1].destinations = @('la-primary', 'la-archive') }
+      $out = Invoke-Updater @{ ResourceGroupName = 'rg-archive'; WorkspaceName = 'law-archive'; TableOnly = $true }
+      Get-Writes | Should -Be @('patch table@law-archive')
+      $global:FakeArm.dcr | Should -BeExactly $global:FakeArm.ServedDcr
+      $out | Should -Match 'not changed \(-TableOnly\)'
+      @((ConvertFrom-TestJson $global:FakeArm.Extra[$archiveTable]).properties.schema.columns).Count | Should -Be 35
+
+      # Then the run for the primary workspace completes the table and the DCR.
+      $global:FakeArm.Calls.Clear(); $global:FakeArm.Bodies.Clear()
+      Invoke-Updater | Out-Null
+      Get-Writes | Should -Be @('patch table', 'put dcr')
+    }
+  }
+
+  Context 'Guards' {
+    It '-WhatIf reports the columns and writes nothing, not even backups' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $out = Invoke-Updater @{ WhatIf = $true }
+      Get-Writes | Should -BeNullOrEmpty
+      @(Get-ChildItem $script:BackupDir).Count | Should -Be 0
+      $out | Should -Match 'would add 22 columns to table'
+      $out | Should -Match 'would add 22 columns to DCR stream'
+    }
+
+    It 'refuses a column that exists with another type, such as a guid RunId_g' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      $t = ConvertFrom-TestJson $global:FakeArm.table
+      $t.properties.schema.columns = @($t.properties.schema.columns) + [pscustomobject]@{ name = 'RunId_g'; type = 'guid' }
+      $global:FakeArm.table = $t | ConvertTo-Json -Depth 100
+      { Invoke-Updater } | Should -Throw "*column 'RunId_g' with type 'guid', but it must be 'string'*"
+      Get-Writes | Should -BeNullOrEmpty
+    }
+
+    It 'refuses a DCR that sends the App Inventory stream to another workspace' {
+      New-FakeArm 'lab-table-before.json' 'rich-dcr-before.json'
+      { Invoke-Updater @{ WorkspaceName = 'law-other' } } | Should -Throw "*no data flow sends it to workspace 'law-other'*"
+      Get-Writes | Should -BeNullOrEmpty
+    }
+  }
+}
+
+Describe 'New deployments declare the same 22 columns' {
+  It '<File> has the 22 columns after the 13 existing App Inventory columns' -ForEach @(
+    @{ File = 'infra/main.json' }
+    @{ File = 'infra/build/main.json' }
+  ) {
+    $template = ConvertFrom-TestJson ([IO.File]::ReadAllText((Join-Path $script:RepoRoot $File)))
+    $cols = @($template.variables.appColumns)
+    $cols.Count | Should -Be 35
+    for ($i = 0; $i -lt 22; $i++) {
+      "$($cols[13 + $i].name):$($cols[13 + $i].type)" | Should -BeExactly "$($script:NewColumns[$i].name):$($script:NewColumns[$i].type)"
+    }
+  }
+
+  It 'New-PowerStacksInventoryTables.ps1 declares each of the 22 columns' {
+    $text = [IO.File]::ReadAllText((Join-Path $script:RepoRoot 'postdeploy/New-PowerStacksInventoryTables.ps1'))
+    foreach ($c in $script:NewColumns) {
+      $text | Should -Match ("@\{\s*name\s*=\s*'" + [regex]::Escape($c.name) + "';\s*type\s*=\s*'" + $c.type + "'\s*\}")
+    }
+  }
+}

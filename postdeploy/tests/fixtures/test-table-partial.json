@@ -1,0 +1,228 @@
+{
+  "properties": {
+    "totalRetentionInDays": 30,
+    "archiveRetentionInDays": 0,
+    "plan": "Analytics",
+    "lastPlanModifiedDate": "2026-11-20T23:34:08.9414408Z",
+    "retentionInDaysAsDefault": false,
+    "totalRetentionInDaysAsDefault": true,
+    "schema": {
+      "tableSubType": "DataCollectionRuleBased",
+      "name": "PowerStacksAppInventoryTest_CL",
+      "tableType": "CustomLog",
+      "columns": [
+        {
+          "name": "TimeGenerated",
+          "type": "datetime",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ComputerName_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ManagedDeviceID_g",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps1_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps2_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps3_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps4_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps5_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps6_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps7_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps8_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps9_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "InstalledApps10_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "AppUsageEnabled_b",
+          "type": "boolean",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "WatchingSince_t",
+          "type": "datetime",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "AppUsageScriptVersion_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "MappingsVersion_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "CustomerMappingsHash_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "UnmatchedExeCount_d",
+          "type": "real",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ProfilesFound_d",
+          "type": "real",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ProfilesRead_d",
+          "type": "real",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "AppUsageCollectionStatus_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage1_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage2_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage3_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage4_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage5_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage6_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage7_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage8_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage9_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        },
+        {
+          "name": "ExeUsage10_s",
+          "type": "string",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        }
+      ],
+      "standardColumns": [
+        {
+          "name": "TenantId",
+          "type": "guid",
+          "isDefaultDisplay": false,
+          "isHidden": false
+        }
+      ],
+      "solutions": [
+        "LogManagement"
+      ],
+      "isTroubleshootingAllowed": true
+    },
+    "provisioningState": "Succeeded",
+    "retentionInDays": 30
+  },
+  "systemData": {
+    "createdAt": "2026-11-20T23:34:08.9417735Z"
+  },
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.OperationalInsights/workspaces/law-inventory/tables/PowerStacksAppInventoryTest_CL",
+  "name": "PowerStacksAppInventoryTest_CL"
+}

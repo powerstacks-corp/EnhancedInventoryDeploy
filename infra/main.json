@@ -5,7 +5,7 @@
     "_generator": {
       "name": "bicep",
       "version": "0.39.26.7824",
-      "templateHash": "17899722232576358269"
+      "templateHash": "16166734379672250381"
     }
   },
   "parameters": {
@@ -197,6 +197,94 @@
       {
         "name": "InstalledApps10_s",
         "type": "string"
+      },
+      {
+        "name": "AppUsageEnabled_b",
+        "type": "boolean"
+      },
+      {
+        "name": "WatchingSince_t",
+        "type": "datetime"
+      },
+      {
+        "name": "AppUsageScriptVersion_s",
+        "type": "string"
+      },
+      {
+        "name": "MappingsVersion_s",
+        "type": "string"
+      },
+      {
+        "name": "CustomerMappingsHash_s",
+        "type": "string"
+      },
+      {
+        "name": "UnmatchedExeCount_d",
+        "type": "real"
+      },
+      {
+        "name": "ProfilesFound_d",
+        "type": "real"
+      },
+      {
+        "name": "ProfilesRead_d",
+        "type": "real"
+      },
+      {
+        "name": "AppUsageCollectionStatus_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage1_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage2_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage3_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage4_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage5_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage6_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage7_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage8_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage9_s",
+        "type": "string"
+      },
+      {
+        "name": "ExeUsage10_s",
+        "type": "string"
+      },
+      {
+        "name": "RunId_g",
+        "type": "string"
+      },
+      {
+        "name": "RowIndex_d",
+        "type": "real"
+      },
+      {
+        "name": "RowCount_d",
+        "type": "real"
       }
     ],
     "driverColumns": [

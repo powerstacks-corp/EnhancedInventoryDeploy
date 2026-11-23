@@ -67,10 +67,9 @@ resource driverTable 'Microsoft.OperationalInsights/workspaces/tables@2022-10-01
   }
 }
 
-// App Usage is a fully separate, optional add-on. Its table, stream, and DCR are
-// created by the intune-app-usage repo (New-PowerStacksAppUsageTable.ps1), which
-// adds its own dedicated DCR that reuses the DCE created here. Nothing about App
-// Usage lives in this Enhanced Inventory template.
+// App Usage writes to the app inventory table; its columns arrive in appColumns
+// from main.bicep. This module doesn't create the prototype PowerStacksAppUsage_CL
+// table.
 
 resource dcr 'Microsoft.Insights/dataCollectionRules@2024-03-11' = {
   name: dcrName

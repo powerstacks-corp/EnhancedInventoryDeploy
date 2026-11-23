@@ -29,7 +29,6 @@ Click the button below to deploy the required Azure resources:
   - `PowerStacksDeviceInventory_CL`
   - `PowerStacksAppInventory_CL`
   - `PowerStacksDriverInventory_CL`
-  - `PowerStacksAppUsage_CL`
 - Data Collection Endpoint (DCE)
 - Data Collection Rule (DCR) with one stream per table
 - Outputs required by the inventory scripts:
@@ -153,11 +152,123 @@ Configure the same values in the macOS inventory script:
 - `DceURI`
 - `DcrImmutableId`
 
-### App Usage collector
+### App Usage
 
-The `PowerStacksAppUsage_CL` table is populated by a separate Windows-only collector that reads the local SRUM database to track per-(user, app) usage. It uses the same DCE URI, DCR immutable ID, and Entra app registration as the inventory scripts, so once those values are captured from the deployment output no additional Azure configuration is needed.
+App Usage is part of the Windows inventory script. It writes only to `PowerStacksAppInventory_CL`: usage fields inside the installed-app entries, and the App Usage columns described in [PowerStacksAppInventory_CL](#powerstacksappinventory_cl). It uses the same DCE URI, DCR immutable ID, and Entra app registration as the rest of the inventory, so it needs no other Azure resources.
 
-The collector is shipped from the private `intune-app-usage` repository to customers who have licensed the app usage feature. Customers do not need to do anything in this repository to enable it beyond running the standard deployment.
+New deployments already have the App Usage columns. For a deployment made before App Usage, see [Add the App Usage columns to an existing deployment](#add-the-app-usage-columns-to-an-existing-deployment) before you turn metering on.
+
+`PowerStacksAppUsage_CL` is a legacy table from the earlier prototype collector. App Usage doesn't use it. `postdeploy/New-PowerStacksInventoryTables.ps1` still creates it, pending a decision on whether to remove it; the **Deploy to Azure** template and Terraform don't create it.
+
+---
+
+## Add the App Usage columns to an existing deployment
+
+Deployments made before App Usage have a `PowerStacksAppInventory_CL` table and DCR stream without the App Usage columns. Add them with `postdeploy/Update-PowerStacksAppInventorySchema.ps1` before you turn App Usage metering on.
+
+The script changes only two things:
+
+- It adds the missing App Usage columns to the `PowerStacksAppInventory_CL` table.
+- It appends the missing App Usage columns to the `Custom-PowerStacksAppInventory_CL` stream declaration of the DCR.
+
+Everything else in the DCR stays exactly as it was: the other streams, the data flows and their transformations, the destinations, the data collection endpoint, the managed identity, and the tags. After the update, the script reads the DCR again and stops with an error if anything other than the new columns changed.
+
+### Before you begin
+
+- You need the Azure CLI, signed in with `az login`. Azure Cloud Shell (PowerShell) already has it.
+- Run the script in Windows PowerShell 5.1 or PowerShell 7.5 or later. PowerShell 6.0 through 7.4 change date values when they read JSON, so the script refuses to run there. To check the version, run `$PSVersionTable.PSVersion`.
+- Your account needs permission to write the workspace table and the DCR, for example **Contributor** on their resource groups.
+- You need the full resource ID of the DCR. In the Azure portal, open the DCR, and then select **JSON View** on the **Overview** page. Or run:
+
+  ```powershell
+  az resource show --resource-group "<DCR_RESOURCE_GROUP>" --name "dcr-PowerStacksInventory" --resource-type "Microsoft.Insights/dataCollectionRules" --query id --output tsv
+  ```
+
+### Run the update
+
+1. Download the script:
+
+   ```powershell
+   $repo = "powerstacks-corp/EnhancedInventoryDeploy"
+   $raw  = "https://raw.githubusercontent.com/$repo/main/postdeploy/Update-PowerStacksAppInventorySchema.ps1"
+   Invoke-WebRequest -Uri $raw -OutFile .\Update-PowerStacksAppInventorySchema.ps1
+   ```
+
+1. Preview the change. With `-WhatIf`, the script lists the columns it would add and changes nothing:
+
+   ```powershell
+   .\Update-PowerStacksAppInventorySchema.ps1 `
+     -SubscriptionId "<WORKSPACE_SUBSCRIPTION_ID>" `
+     -ResourceGroupName "<WORKSPACE_RESOURCE_GROUP>" `
+     -WorkspaceName "<WORKSPACE_NAME>" `
+     -DcrResourceId "<DCR_RESOURCE_ID>" `
+     -WhatIf
+   ```
+
+1. Run the same command without `-WhatIf`.
+
+1. **Wait 30 minutes before you turn metering on.** A DCR change takes about 30 minutes to reach every ingestion instance. Until then, uploads still succeed, but rows can lose the new columns without any error. A test row that keeps the new columns doesn't prove that every upload will, so wait the full 30 minutes.
+
+The script is safe to run again. Columns that already exist are skipped, and a run that finds nothing to add changes nothing.
+
+Before it changes anything, the script checks every data flow in the DCR that carries the `Custom-PowerStacksAppInventory_CL` stream. It stops without changes if a flow writes the stream to a different table, or if no flow sends it to the workspace you named.
+
+### If the DCR sends App Inventory to more than one workspace
+
+The DCR can only be updated after every workspace that receives the stream has the columns in its table. If another workspace's table doesn't have them yet, the script stops without changes and names that workspace. In that case:
+
+1. For each other workspace, run the script with that workspace's `-SubscriptionId`, `-ResourceGroupName`, and `-WorkspaceName`, and add `-TableOnly`. This adds the columns to that workspace's table and leaves the DCR unchanged.
+1. Run the script for the remaining workspace without `-TableOnly`. It updates that table and the DCR.
+
+### Backups
+
+Each run without `-WhatIf` first saves the table and the DCR as it read them, in the folder that holds the script (or the folder you pass with `-BackupDirectory`):
+
+- `backup-<UTC yyyyMMddHHmmss>-table.json`
+- `backup-<UTC yyyyMMddHHmmss>-dcr.json`
+
+Keep the files from the run that made the change. You need its DCR backup to roll back.
+
+### If the update stops partway
+
+The script updates the table first, and the DCR second. If Azure rejects a step, the script stops with an error, and nothing after that step runs. If the table update succeeded and the DCR update failed, the table has extra columns that nothing uses yet, which is harmless. Fix the cause shown in the error, and then run the script again. It skips the table and completes the DCR.
+
+### Roll back
+
+Roll back in this order:
+
+1. **Roll back the inventory script first.** Turn App Usage metering off, or redeploy the previous script version.
+1. **Roll back the DCR second,** and only if the update damaged it. Wait until devices have stopped sending split runs first. A DCR without the run columns drops them, so the rows of a split run arrive as unrelated rows, and inventory for that device breaks.
+
+To roll back the DCR, put the saved backup back with `-RollbackFrom`:
+
+```powershell
+.\Update-PowerStacksAppInventorySchema.ps1 `
+  -SubscriptionId "<WORKSPACE_SUBSCRIPTION_ID>" `
+  -ResourceGroupName "<WORKSPACE_RESOURCE_GROUP>" `
+  -WorkspaceName "<WORKSPACE_NAME>" `
+  -DcrResourceId "<DCR_RESOURCE_ID>" `
+  -RollbackFrom ".\backup-<UTC yyyyMMddHHmmss>-dcr.json"
+```
+
+The script backs up the current DCR, puts the backup back, and checks that the DCR now matches it. It refuses a file that isn't a backup of that DCR. The table columns stay in place, and the previous inventory script ignores them. A rollback is also a DCR change, so it takes about 30 minutes to reach every ingestion instance.
+
+### Compatibility
+
+| Inventory script | Table and DCR | Result |
+|---|---|---|
+| Without App Usage | Without the App Usage columns | Today's behavior. |
+| Without App Usage | With the App Usage columns | Unchanged. The App Usage columns stay empty. |
+| With App Usage, metering off | Either | The same App Inventory rows as the script without App Usage. |
+| With App Usage, metering on, run fits in one row | Without the App Usage columns | The usage fields inside `InstalledApps` arrive. The DCR drops the App Usage columns without an error. |
+| With App Usage, metering on, run split across rows | Without the App Usage columns | **Not supported.** The DCR drops the run columns, so rows 2 and later arrive as ordinary rows that hold only part of the data, and inventory for that device breaks. |
+| With App Usage, metering on | With the App Usage columns, after the 30-minute wait | Everything arrives. |
+
+That's why turning metering on requires three things: this update, the 30-minute wait, and the BI for Intune release that reads split runs.
+
+### Terraform deployments
+
+For a deployment made with the Terraform module in `infra/terraform`, run `terraform plan` and `terraform apply` with the current module instead. Terraform adds the columns to the table and to the DCR stream. Review the plan first, because Terraform also reverts any DCR changes made outside Terraform. The 30-minute wait applies the same way.
 
 ---
 
@@ -173,7 +284,7 @@ This script retrieves and displays the full DCR configuration and is useful for 
 
 ## Custom table schemas
 
-All four tables share a common identity header (`TimeGenerated`, `ComputerName_s`, `ManagedDeviceID_g`). Each table also carries the data specific to its inventory type.
+The tables share a common identity header (`TimeGenerated`, `ComputerName_s`, `ManagedDeviceID_g`). Each table also carries the data specific to its inventory type.
 
 ### PowerStacksDeviceInventory_CL
 
@@ -196,8 +307,41 @@ The ten `DeviceDetails` slots carry inventory payloads serialized by the Windows
 | `ComputerName_s` | string |
 | `ManagedDeviceID_g` | string (GUID) |
 | `InstalledApps1_s` ... `InstalledApps10_s` | string |
+| `AppUsageEnabled_b` | boolean |
+| `WatchingSince_t` | datetime |
+| `AppUsageScriptVersion_s` | string |
+| `MappingsVersion_s` | string |
+| `CustomerMappingsHash_s` | string |
+| `UnmatchedExeCount_d` | real |
+| `ProfilesFound_d` | real |
+| `ProfilesRead_d` | real |
+| `AppUsageCollectionStatus_s` | string |
+| `ExeUsage1_s` ... `ExeUsage10_s` | string |
+| `RunId_g` | string (GUID) |
+| `RowIndex_d` | real |
+| `RowCount_d` | real |
 
 Same slot convention as device inventory. Each `InstalledApps` slot holds a chunk of the installed-application list.
+
+The App Usage columns stay empty unless the Windows inventory script runs with App Usage metering on:
+
+| Column | Description |
+|---|---|
+| `AppUsageEnabled_b` | Metering was on for this run. |
+| `WatchingSince_t` | Earliest usage data the device has. |
+| `AppUsageScriptVersion_s` | Inventory script version. |
+| `MappingsVersion_s` | Version of the PowerStacks mappings the run used. |
+| `CustomerMappingsHash_s` | SHA-256 hash of the customer mappings file the run used. Empty when the file was absent or invalid. |
+| `UnmatchedExeCount_d` | Number of executable entries that didn't match an installed app. |
+| `ProfilesFound_d`, `ProfilesRead_d` | User profiles on the device, and how many of them the run read. The difference is the coverage gap. |
+| `AppUsageCollectionStatus_s` | `OK`, or a list of problems in the form `Token[:detail]`, separated by `; `. |
+| `ExeUsage1_s` ... `ExeUsage10_s` | Per-executable usage evidence, in the same slot convention as `InstalledApps`. |
+| `RunId_g` | One ID per run. Every row of the run carries it. |
+| `RowIndex_d`, `RowCount_d` | This row's position in the run, and the run's row count. Both are `1` when the run fits in one row. A run too large for one row is split across several rows that share a `RunId_g`. |
+
+`RunId_g` is declared `string` in both the table and the DCR, like `ManagedDeviceID_g`. A DCR stream has no GUID type, and a GUID table column fails the DCR's transform check.
+
+New deployments from this repository (the **Deploy to Azure** button, `infra/main.bicep`, Terraform, and `postdeploy/New-PowerStacksInventoryTables.ps1`) include these columns. To add them to an existing deployment, see [Add the App Usage columns to an existing deployment](#add-the-app-usage-columns-to-an-existing-deployment).
 
 ### PowerStacksDriverInventory_CL
 
@@ -210,7 +354,9 @@ Same slot convention as device inventory. Each `InstalledApps` slot holds a chun
 
 Same slot convention. Each `ListedDrivers` slot holds a chunk of the driver list.
 
-### PowerStacksAppUsage_CL
+### PowerStacksAppUsage_CL (legacy)
+
+This table is from the earlier prototype collector and is no longer used: App Usage writes only to `PowerStacksAppInventory_CL`. `postdeploy/New-PowerStacksInventoryTables.ps1` still creates it, pending a decision on whether to remove it. Its schema is listed here for reference only.
 
 | Column | Type | Description |
 |---|---|---|
@@ -231,32 +377,19 @@ Same slot convention. Each `ListedDrivers` slot holds a chunk of the driver list
 | `FirstSeen` | datetime | First time this (user, app) ledger entry was written. |
 | `InFocusSeconds` | integer | Accumulated in-focus or tracked-activity time. |
 
-The `PowerStacksAppUsage_CL` schema is per-(user, app) rather than per-device, because app usage is a user-attributable signal. The collector that produces these rows lives in the private `intune-app-usage` repository and uses the Windows SRUM database as its source.
-
-Typical query patterns:
-
-```kql
-// Per-app usage rollup across all users, last 30 days
-PowerStacksAppUsage_CL
-| where LastUsedTime > ago(30d)
-| where isnotempty(ResolvedAppName_s)
-| summarize total = sum(InFocusSeconds), last = max(LastUsedTime) by ResolvedAppName_s
-
-// License reclamation candidates: users who haven't touched an app in 90 days
-PowerStacksAppUsage_CL
-| where ResolvedAppName_s == "Microsoft 365 Apps for enterprise - en-us"
-| where UserSidType_s in ("CloudOnly", "Hybrid")
-| summarize last = max(LastUsedTime) by AadUserId_g, UPN_s
-| where last < ago(90d)
-```
+The prototype schema was per user and app rather than per device.
 
 ---
 
 ## Repository contents
 
-- `infra/main.bicep` – Source Bicep template
-- `infra/main.json` – Compiled ARM template used by the portal
-- `infra/createUiDefinition.json` – Portal wizard for the Deploy to Azure button (validates the workspace name and collects the DCE/DCR names and optional Enterprise Application Object ID)
+- `infra/main.bicep`: Source Bicep template
+- `infra/main.json`: Compiled ARM template used by the portal
+- `infra/createUiDefinition.json`: Portal wizard for the Deploy to Azure button (validates the workspace name and collects the DCE/DCR names and optional Enterprise Application Object ID)
+- `infra/terraform`: Terraform equivalent of the template, for an existing workspace
+- `postdeploy/New-PowerStacksInventoryTables.ps1`: Creates or updates the custom tables in an existing workspace
+- `postdeploy/Update-PowerStacksAppInventorySchema.ps1`: Adds the App Usage columns to an existing deployment, with backup and rollback
+- `postdeploy/tests`: Offline Pester tests for the updater
 
 ---
 
