@@ -97,6 +97,31 @@ var appColumns = [
   { name: 'InstalledApps8_s', type: 'string' }
   { name: 'InstalledApps9_s', type: 'string' }
   { name: 'InstalledApps10_s', type: 'string' }
+  // App Usage columns (empty unless the inventory script runs with metering on).
+  // Every _g column is string, like ManagedDeviceID_g: a DCR stream has no guid type,
+  // and a guid table column fails the DCR's transform check.
+  { name: 'AppUsageEnabled_b', type: 'boolean' }
+  { name: 'WatchingSince_t', type: 'datetime' }
+  { name: 'AppUsageScriptVersion_s', type: 'string' }
+  { name: 'MappingsVersion_s', type: 'string' }
+  { name: 'CustomerMappingsHash_s', type: 'string' }
+  { name: 'UnmatchedExeCount_d', type: 'real' }
+  { name: 'ProfilesFound_d', type: 'real' }
+  { name: 'ProfilesRead_d', type: 'real' }
+  { name: 'AppUsageCollectionStatus_s', type: 'string' }
+  { name: 'ExeUsage1_s', type: 'string' }
+  { name: 'ExeUsage2_s', type: 'string' }
+  { name: 'ExeUsage3_s', type: 'string' }
+  { name: 'ExeUsage4_s', type: 'string' }
+  { name: 'ExeUsage5_s', type: 'string' }
+  { name: 'ExeUsage6_s', type: 'string' }
+  { name: 'ExeUsage7_s', type: 'string' }
+  { name: 'ExeUsage8_s', type: 'string' }
+  { name: 'ExeUsage9_s', type: 'string' }
+  { name: 'ExeUsage10_s', type: 'string' }
+  { name: 'RunId_g', type: 'string' }
+  { name: 'RowIndex_d', type: 'real' }
+  { name: 'RowCount_d', type: 'real' }
 ]
 
 var driverColumns = [
@@ -201,10 +226,9 @@ resource driverTableNew 'Microsoft.OperationalInsights/workspaces/tables@2022-10
   }
 }
 
-// App Usage is a fully separate, optional add-on. Its table, stream, and DCR are
-// all created by the intune-app-usage repo (New-PowerStacksAppUsageTable.ps1),
-// which adds its own dedicated DCR that reuses this deployment's DCE. Nothing
-// about App Usage lives in this Enhanced Inventory template.
+// App Usage writes to PowerStacksAppInventory_CL (the App Usage columns in
+// appColumns above). This template doesn't create the prototype
+// PowerStacksAppUsage_CL table.
 
 resource dcrNew 'Microsoft.Insights/dataCollectionRules@2024-03-11' = if (workspaceMode == 'CreateNew') {
   name: dcrName

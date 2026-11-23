@@ -1,0 +1,114 @@
+{
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.OperationalInsights/workspaces/law-inventory/tables/PowerStacksAppInventory_CL",
+  "name": "PowerStacksAppInventory_CL",
+  "properties": {
+    "archiveRetentionInDays": 0,
+    "lastPlanModifiedDate": "2026-07-10T17:49:53.5856069Z",
+    "plan": "Analytics",
+    "provisioningState": "Succeeded",
+    "retentionInDays": 30,
+    "retentionInDaysAsDefault": true,
+    "schema": {
+      "columns": [
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "TimeGenerated",
+          "type": "datetime"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "ComputerName_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "ManagedDeviceID_g",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps1_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps2_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps3_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps4_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps5_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps6_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps7_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps8_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps9_s",
+          "type": "string"
+        },
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "InstalledApps10_s",
+          "type": "string"
+        }
+      ],
+      "isTroubleshootingAllowed": true,
+      "name": "PowerStacksAppInventory_CL",
+      "solutions": [
+        "LogManagement"
+      ],
+      "standardColumns": [
+        {
+          "isDefaultDisplay": false,
+          "isHidden": false,
+          "name": "TenantId",
+          "type": "guid"
+        }
+      ],
+      "tableSubType": "DataCollectionRuleBased",
+      "tableType": "CustomLog"
+    },
+    "totalRetentionInDays": 30,
+    "totalRetentionInDaysAsDefault": true
+  },
+  "systemData": {
+    "createdAt": "2026-07-10T17:49:53.5860516Z"
+  }
+}

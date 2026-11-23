@@ -26,6 +26,26 @@ locals {
       { name = "ManagedDeviceID_g", type = "string" },
     ],
     [for i in range(1, 11) : { name = "InstalledApps${i}_s", type = "string" }],
+    # App Usage columns, in the same order as main.bicep. Every _g column is
+    # string, like ManagedDeviceID_g: a DCR stream has no guid type, and a guid
+    # table column fails the DCR's transform check.
+    [
+      { name = "AppUsageEnabled_b", type = "boolean" },
+      { name = "WatchingSince_t", type = "datetime" },
+      { name = "AppUsageScriptVersion_s", type = "string" },
+      { name = "MappingsVersion_s", type = "string" },
+      { name = "CustomerMappingsHash_s", type = "string" },
+      { name = "UnmatchedExeCount_d", type = "real" },
+      { name = "ProfilesFound_d", type = "real" },
+      { name = "ProfilesRead_d", type = "real" },
+      { name = "AppUsageCollectionStatus_s", type = "string" },
+    ],
+    [for i in range(1, 11) : { name = "ExeUsage${i}_s", type = "string" }],
+    [
+      { name = "RunId_g", type = "string" },
+      { name = "RowIndex_d", type = "real" },
+      { name = "RowCount_d", type = "real" },
+    ],
   )
 
   driver_columns = concat(
