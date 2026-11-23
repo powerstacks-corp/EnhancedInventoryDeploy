@@ -176,6 +176,7 @@ Everything else in the DCR stays exactly as it was: the other streams, the data 
 ### Before you begin
 
 - You need the Azure CLI, signed in with `az login`. Azure Cloud Shell (PowerShell) already has it.
+- Run the script in Windows PowerShell 5.1 or PowerShell 7.5 or later. PowerShell 6.0 through 7.4 change date values when they read JSON, so the script refuses to run there. To check the version, run `$PSVersionTable.PSVersion`.
 - Your account needs permission to write the workspace table and the DCR, for example **Contributor** on their resource groups.
 - You need the full resource ID of the DCR. In the Azure portal, open the DCR, and then select **JSON View** on the **Overview** page. Or run:
 
@@ -209,6 +210,15 @@ Everything else in the DCR stays exactly as it was: the other streams, the data 
 1. **Wait 30 minutes before you turn metering on.** A DCR change takes about 30 minutes to reach every ingestion instance. Until then, uploads still succeed, but rows can lose the new columns without any error. A test row that keeps the new columns doesn't prove that every upload will, so wait the full 30 minutes.
 
 The script is safe to run again. Columns that already exist are skipped, and a run that finds nothing to add changes nothing.
+
+Before it changes anything, the script checks every data flow in the DCR that carries the `Custom-PowerStacksAppInventory_CL` stream. It stops without changes if a flow writes the stream to a different table, or if no flow sends it to the workspace you named.
+
+### If the DCR sends App Inventory to more than one workspace
+
+The DCR can only be updated after every workspace that receives the stream has the columns in its table. If another workspace's table doesn't have them yet, the script stops without changes and names that workspace. In that case:
+
+1. For each other workspace, run the script with that workspace's `-SubscriptionId`, `-ResourceGroupName`, and `-WorkspaceName`, and add `-TableOnly`. This adds the columns to that workspace's table and leaves the DCR unchanged.
+1. Run the script for the remaining workspace without `-TableOnly`. It updates that table and the DCR.
 
 ### Backups
 

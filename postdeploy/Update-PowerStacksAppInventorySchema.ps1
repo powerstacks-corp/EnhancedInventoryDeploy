@@ -32,7 +32,11 @@
   minutes after the DCR update before you turn metering on.
 
   Requires the Azure CLI, signed in (az login) with an account that can write the
-  workspace table and the DCR.
+  workspace table and the DCR, and Windows PowerShell 5.1 or PowerShell 7.5 or later
+  (PowerShell 6.0 through 7.4 rewrite date values when they read JSON, so the script refuses them).
+
+  Every data flow that carries the stream must write it to -TableName. If the DCR also sends
+  the stream to other workspaces, their tables need the columns first (see -TableOnly).
 
 .PARAMETER SubscriptionId
   Subscription of the Log Analytics workspace.
@@ -53,6 +57,11 @@
 
 .PARAMETER BackupDirectory
   Folder for the backup files. Defaults to the folder that holds this script.
+
+.PARAMETER TableOnly
+  Adds the columns to the table in -WorkspaceName only, and leaves the DCR unchanged. Use it when the DCR
+  sends the App Inventory stream to more than one workspace: run it once for each other workspace, and then
+  run the script without -TableOnly for the last one, which updates the DCR.
 
 .PARAMETER TableName
   The table the DCR writes the Custom-PowerStacksAppInventory_CL stream to. Defaults to
@@ -95,7 +104,9 @@ param(
   [string]$BackupDirectory = $PSScriptRoot,
 
   [ValidatePattern('^[A-Za-z0-9_]+_CL$')]
-  [string]$TableName = 'PowerStacksAppInventory_CL'
+  [string]$TableName = 'PowerStacksAppInventory_CL',
+
+  [switch]$TableOnly
 )
 
 Set-StrictMode -Version Latest
@@ -103,6 +114,7 @@ $ErrorActionPreference = 'Stop'
 
 # The stream the inventory script posts to. Its data flow writes to $TableName.
 $StreamName = 'Custom-PowerStacksAppInventory_CL'
+# Deliberate pin, used for both GET and PUT: the version main.bicep deploys, so a round trip can't drop properties.
 $TableApiVersion = '2022-10-01'
 $DcrApiVersion   = '2024-03-11'
 
@@ -132,6 +144,14 @@ $TableColumnReadOnly   = @('isDefaultDisplay', 'isHidden')
 
 $TableWaitSeconds = 300
 $TablePollSeconds = 10
+
+# PowerShell 6 and later turn date-like JSON strings into DateTime values and write them back in another
+# format, which would silently change tag values or descriptions in the DCR. PowerShell 7.5 and later can
+# turn that off (-DateKind String); Windows PowerShell 5.1 never converts. Refuse the hosts in between.
+$JsonDateKindString = (Get-Command ConvertFrom-Json).Parameters.ContainsKey('DateKind')
+if ($PSVersionTable.PSVersion.Major -ge 6 -and -not $JsonDateKindString) {
+  throw "PowerShell $($PSVersionTable.PSVersion) rewrites date values when it reads JSON, which would change the DCR. Run this script in Windows PowerShell 5.1 or PowerShell 7.5 or later. Nothing was changed."
+}
 
 # --------------------------------------------------
 # Helpers
@@ -185,6 +205,12 @@ function Send-ArmBody([string]$Step, [string]$Method, [string]$Url, [string]$Bod
   }
 }
 
+function ConvertFrom-JsonText([string]$Text) {
+  # Every JSON read goes through here, so strings stay exactly as Azure sent them.
+  if ($JsonDateKindString) { return ($Text | ConvertFrom-Json -DateKind String) }
+  return ($Text | ConvertFrom-Json)
+}
+
 function ConvertTo-JsonBody($Object) { $Object | ConvertTo-Json -Depth 100 -Compress }
 
 function Remove-Properties($Object, [string[]]$Names) {
@@ -195,9 +221,16 @@ function Remove-Properties($Object, [string[]]$Names) {
 
 function Get-DcrPutObject([string]$DcrText) {
   # The DCR as read, minus server-set properties: the body a PUT sends back.
-  $dcr = $DcrText | ConvertFrom-Json
+  $dcr = ConvertFrom-JsonText $DcrText
   Remove-Properties $dcr $DcrReadOnlyTop
   if ($dcr.PSObject.Properties['properties']) { Remove-Properties $dcr.properties $DcrReadOnlyProperties }
+  if ($dcr.PSObject.Properties['identity'] -and $dcr.identity) {
+    # Server-set identity values: the principal and tenant, and each user-assigned identity's IDs ({} on PUT).
+    Remove-Properties $dcr.identity @('principalId', 'tenantId')
+    if ($dcr.identity.PSObject.Properties['userAssignedIdentities'] -and $dcr.identity.userAssignedIdentities) {
+      foreach ($uai in @($dcr.identity.userAssignedIdentities.PSObject.Properties)) { $uai.Value = New-Object PSObject }
+    }
+  }
   return $dcr
 }
 
@@ -280,7 +313,7 @@ Invoke-AzCli -Step 'Azure CLI sign-in check (az account show)' -Arguments @('acc
 if ($RollbackFrom) {
   # ---------------- Rollback: PUT a saved DCR backup ----------------
   $backupText = Read-Utf8File $RollbackFrom
-  $backup = $backupText | ConvertFrom-Json
+  $backup = ConvertFrom-JsonText $backupText
   if (-not $backup.PSObject.Properties['type'] -or $backup.type -ne 'Microsoft.Insights/dataCollectionRules') {
     throw "'$RollbackFrom' is not a DCR backup (expected type Microsoft.Insights/dataCollectionRules). Nothing was changed."
   }
@@ -315,33 +348,61 @@ if ($RollbackFrom) {
 
 # 1. Read the DCR, check that it writes to this table and workspace, then read the table. Back up both.
 $dcrText = Get-ArmText 'DCR read' $dcrUrl
-$dcr     = $dcrText | ConvertFrom-Json
+$dcr     = ConvertFrom-JsonText $dcrText
 
-# The DCR must send the App Inventory stream to this table and workspace, or the table and the DCR won't match.
-$flow = @($dcr.properties.dataFlows | Where-Object { @($_.streams) -contains $StreamName })
-if (-not $flow) { throw "The DCR has no data flow for '$StreamName'. Check -DcrResourceId. Nothing was changed." }
-$outputStream = if ($flow[0].PSObject.Properties['outputStream'] -and $flow[0].outputStream) { [string]$flow[0].outputStream } else { $StreamName }
-if ($outputStream -ne "Custom-$TableName") {
-  throw "The DCR writes '$StreamName' to '$outputStream', not to table '$TableName'. Check -DcrResourceId and -TableName. Nothing was changed."
+# Every data flow that carries the App Inventory stream must write it to this table. Every Log Analytics
+# destination of those flows needs the columns before the DCR can send them: this workspace's table is
+# updated by this run, and any other workspace's table must already have them.
+$flows = @($dcr.properties.dataFlows | Where-Object { @($_.streams) -contains $StreamName })
+if (-not $flows) { throw "The DCR has no data flow for '$StreamName'. Check -DcrResourceId. Nothing was changed." }
+$laByName = @{}
+if ($dcr.properties.destinations.PSObject.Properties['logAnalytics']) {
+  foreach ($d in @($dcr.properties.destinations.logAnalytics)) { $laByName[[string]$d.name] = [string]$d.workspaceResourceId }
 }
-$laDestinations = @()
-if ($dcr.properties.destinations.PSObject.Properties['logAnalytics']) { $laDestinations = @($dcr.properties.destinations.logAnalytics) }
-$targets = @($laDestinations | Where-Object { @($flow[0].destinations) -contains $_.name } | ForEach-Object { [string]$_.workspaceResourceId })
-if (-not ($targets | Where-Object { $_ -eq $workspaceId })) {
-  throw "The DCR sends '$StreamName' to '$($targets -join ', ')', not to workspace '$WorkspaceName' in resource group '$ResourceGroupName'. Check the parameters. Nothing was changed."
+$problems = @()
+$otherWorkspaces = @()
+$reachesWorkspace = $false
+foreach ($f in $flows) {
+  $outputStream = if ($f.PSObject.Properties['outputStream'] -and $f.outputStream) { [string]$f.outputStream } else { $StreamName }
+  if ($outputStream -ne "Custom-$TableName") { $problems += "a data flow writes it to '$outputStream', not to table '$TableName'" }
+  foreach ($destName in @($f.destinations)) {
+    if (-not $laByName.ContainsKey([string]$destName)) { continue }   # not Log Analytics: no table schema involved
+    $ws = $laByName[[string]$destName]
+    if ($ws -eq $workspaceId) { $reachesWorkspace = $true }
+    elseif ($otherWorkspaces -notcontains $ws) { $otherWorkspaces += $ws }
+  }
+}
+if (-not $reachesWorkspace) { $problems += "no data flow sends it to workspace '$WorkspaceName' in resource group '$ResourceGroupName'" }
+if ($problems) {
+  throw "The DCR doesn't match the parameters: $($problems -join '; '). Check -DcrResourceId, -WorkspaceName, and -TableName. Nothing was changed."
+}
+if (-not $TableOnly) {
+  $lacking = @()
+  foreach ($ws in $otherWorkspaces) {
+    $other = ConvertFrom-JsonText (Get-ArmText "Table read in workspace $ws" "$ws/tables/$($TableName)?api-version=$TableApiVersion")
+    if ((Get-MissingColumns @($other.properties.schema.columns) "Table $TableName in workspace $ws").Count) { $lacking += $ws }
+  }
+  if ($lacking) {
+    throw "The DCR also sends '$StreamName' to $($lacking -join ', '), and table '$TableName' there doesn't have the App Usage columns yet, so the DCR can't be updated. For each of those workspaces, run this script with that workspace's -SubscriptionId, -ResourceGroupName, and -WorkspaceName and with -TableOnly; then run it again for this workspace without -TableOnly. Nothing was changed."
+  }
 }
 
 $tableText = Get-ArmText 'Table read' $tableUrl
-$table     = $tableText | ConvertFrom-Json
+$table     = ConvertFrom-JsonText $tableText
 
 $tableMissing  = Get-MissingColumns @($table.properties.schema.columns) "Table $TableName"
 $streamMissing = Get-MissingColumns (Get-StreamColumns $dcr) "DCR stream $StreamName"
+if ($TableOnly) { $streamMissing = @() }
 
 if (-not $WhatIfPreference) {
   [void](Save-Backup 'table' $tableText $stamp)
   $dcrBackup = Save-Backup 'dcr' $dcrText $stamp
 }
 
+if ($TableOnly -and -not $tableMissing.Count) {
+  Write-Host "Nothing to add: $TableName in workspace $WorkspaceName already has all $($AppUsageColumns.Count) App Usage columns. The DCR wasn't checked or changed (-TableOnly)."
+  return
+}
 if (-not $tableMissing.Count -and -not $streamMissing.Count) {
   Write-Host "Nothing to add: $TableName and the $StreamName stream already have all $($AppUsageColumns.Count) App Usage columns."
   Write-Host 'If the DCR was changed in the last 30 minutes, wait until 30 minutes have passed before you turn metering on.'
@@ -351,7 +412,8 @@ if (-not $tableMissing.Count -and -not $streamMissing.Count) {
 if ($WhatIfPreference) {
   Write-Host "What if: would add $($tableMissing.Count) columns to table $TableName$(if ($tableMissing.Count) { ': ' + (($tableMissing | ForEach-Object { $_.name }) -join ', ') })"
   Write-Host "What if: would add $($streamMissing.Count) columns to DCR stream $StreamName$(if ($streamMissing.Count) { ': ' + (($streamMissing | ForEach-Object { $_.name }) -join ', ') })"
-  Write-Host 'What if: nothing else in the DCR would change. No backups were written and nothing was changed.'
+  if ($TableOnly) { Write-Host 'What if: the DCR would not change (-TableOnly). No backups were written and nothing was changed.' }
+  else { Write-Host 'What if: nothing else in the DCR would change. No backups were written and nothing was changed.' }
   return
 }
 
@@ -368,7 +430,7 @@ if ($tableMissing.Count) {
     Send-ArmBody 'Table update (PATCH)' 'patch' $tableUrl $tableBody
     $deadline = (Get-Date).AddSeconds($TableWaitSeconds)
     while ($true) {
-      $now = (Get-ArmText 'Table read after update' $tableUrl) | ConvertFrom-Json
+      $now = ConvertFrom-JsonText (Get-ArmText 'Table read after update' $tableUrl)
       $stillMissing = Get-MissingColumns @($now.properties.schema.columns) "Table $TableName"
       if (-not $stillMissing.Count -and $now.properties.provisioningState -eq 'Succeeded') { break }
       if ((Get-Date) -gt $deadline) {
@@ -382,6 +444,11 @@ if ($tableMissing.Count) {
   Write-Host "Table: nothing to add; $TableName already has the App Usage columns."
 }
 
+if ($TableOnly) {
+  Write-Host "DCR: not changed (-TableOnly). After every workspace's table has the columns, run the script without -TableOnly to update the DCR."
+  return
+}
+
 # 3. DCR: append the missing columns to the App Inventory stream; send everything else back as read.
 if ($streamMissing.Count) {
   $putObject = Get-DcrPutObject $dcrText
@@ -393,7 +460,7 @@ if ($streamMissing.Count) {
 
     # 4. Verify: the DCR now reads back as the DCR read in step 1 plus the appended columns, nothing else.
     $afterText = Get-ArmText 'DCR read after update' $dcrUrl
-    if ((Get-NormalizedDcr $afterText) -cne (ConvertTo-CanonicalJson ($putBody | ConvertFrom-Json))) {
+    if ((Get-NormalizedDcr $afterText) -cne (ConvertTo-CanonicalJson (ConvertFrom-JsonText $putBody))) {
       throw "The DCR update was accepted, but the DCR doesn't read back as the original plus the new columns. Compare it with '$dcrBackup', and restore it with -RollbackFrom if needed."
     }
     Write-Host "DCR: added $($streamMissing.Count) columns to the $StreamName stream. Nothing else in the DCR changed."

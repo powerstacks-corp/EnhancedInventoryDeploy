@@ -1,0 +1,258 @@
+{
+  "etag": "\"00000000-0000-0000-0000-000000000000\"",
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.Insights/dataCollectionRules/dcr-PowerStacksInventory",
+  "identity": {
+    "type": "SystemAssigned,UserAssigned",
+    "principalId": "66666666-6666-6666-6666-666666666666",
+    "tenantId": "77777777-7777-7777-7777-777777777777",
+    "userAssignedIdentities": {
+      "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-one": {
+        "clientId": "33333333-3333-3333-3333-333333333333",
+        "principalId": "44444444-4444-4444-4444-444444444444"
+      },
+      "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.ManagedIdentity/userAssignedIdentities/id-two": {
+        "clientId": "88888888-8888-8888-8888-888888888888",
+        "principalId": "99999999-9999-9999-9999-999999999999"
+      }
+    }
+  },
+  "location": "eastus",
+  "name": "dcr-PowerStacksInventory",
+  "properties": {
+    "dataCollectionEndpointId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.Insights/dataCollectionEndpoints/dce-PowerStacksInventory",
+    "dataFlows": [
+      {
+        "destinations": [
+          "la-destination"
+        ],
+        "outputStream": "Custom-PowerStacksDeviceInventory_CL",
+        "streams": [
+          "Custom-PowerStacksDeviceInventory_CL"
+        ],
+        "transformKql": "source | extend TimeGenerated = now()"
+      },
+      {
+        "destinations": [
+          "la-destination"
+        ],
+        "outputStream": "Custom-PowerStacksAppInventory_CL",
+        "streams": [
+          "Custom-PowerStacksAppInventory_CL"
+        ],
+        "transformKql": "source | extend TimeGenerated = now()"
+      },
+      {
+        "destinations": [
+          "la-destination"
+        ],
+        "outputStream": "Custom-PowerStacksDriverInventory_CL",
+        "streams": [
+          "Custom-PowerStacksDriverInventory_CL"
+        ],
+        "transformKql": "source | extend TimeGenerated = now()"
+      }
+    ],
+    "description": "2024-01-01T10:00:00.1234567+02:00",
+    "destinations": {
+      "logAnalytics": [
+        {
+          "name": "la-destination",
+          "workspaceId": "11111111-1111-1111-1111-111111111111",
+          "workspaceResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.OperationalInsights/workspaces/law-inventory"
+        }
+      ]
+    },
+    "immutableId": "dcr-00000000000000000000000000000000",
+    "provisioningState": "Succeeded",
+    "streamDeclarations": {
+      "Custom-PowerStacksAppInventory_CL": {
+        "columns": [
+          {
+            "name": "TimeGenerated",
+            "type": "datetime"
+          },
+          {
+            "name": "ComputerName_s",
+            "type": "string"
+          },
+          {
+            "name": "ManagedDeviceID_g",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps1_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps2_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps3_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps4_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps5_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps6_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps7_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps8_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps9_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps10_s",
+            "type": "string"
+          }
+        ]
+      },
+      "Custom-PowerStacksDeviceInventory_CL": {
+        "columns": [
+          {
+            "name": "TimeGenerated",
+            "type": "datetime"
+          },
+          {
+            "name": "ComputerName_s",
+            "type": "string"
+          },
+          {
+            "name": "ManagedDeviceID_g",
+            "type": "string"
+          },
+          {
+            "name": "Microsoft365_b",
+            "type": "boolean"
+          },
+          {
+            "name": "Warranty_b",
+            "type": "boolean"
+          },
+          {
+            "name": "DeviceDetails1_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails2_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails3_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails4_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails5_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails6_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails7_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails8_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails9_s",
+            "type": "string"
+          },
+          {
+            "name": "DeviceDetails10_s",
+            "type": "string"
+          }
+        ]
+      },
+      "Custom-PowerStacksDriverInventory_CL": {
+        "columns": [
+          {
+            "name": "TimeGenerated",
+            "type": "datetime"
+          },
+          {
+            "name": "ComputerName_s",
+            "type": "string"
+          },
+          {
+            "name": "ManagedDeviceID_g",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers1_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers2_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers3_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers4_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers5_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers6_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers7_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers8_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers9_s",
+            "type": "string"
+          },
+          {
+            "name": "ListedDrivers10_s",
+            "type": "string"
+          }
+        ]
+      }
+    }
+  },
+  "systemData": {
+    "createdAt": "2026-07-10T17:50:14.9570746Z",
+    "createdBy": "admin@contoso.com",
+    "createdByType": "User",
+    "lastModifiedAt": "2026-07-10T17:50:14.9570746Z",
+    "lastModifiedBy": "admin@contoso.com",
+    "lastModifiedByType": "User"
+  },
+  "type": "Microsoft.Insights/dataCollectionRules",
+  "tags": {
+    "CreatedOn": "2024-05-01T12:34:56.000Z"
+  }
+}

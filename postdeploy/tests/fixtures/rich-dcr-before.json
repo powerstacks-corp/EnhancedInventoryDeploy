@@ -23,7 +23,7 @@
         "transformKql": "source | extend TimeGenerated = now() | where ComputerName_s !startswith 'TEST-'"
       },
       {
-        "destinations": [ "la-primary", "la-archive" ],
+        "destinations": [ "la-primary" ],
         "outputStream": "Custom-PowerStacksAppInventory_CL",
         "streams": [ "Custom-PowerStacksAppInventory_CL" ],
         "transformKql": "source | extend TimeGenerated = now()"
@@ -108,7 +108,9 @@
   "tags": {
     "CostCenter": "IT-042",
     "Owner": "Endpoint Team",
-    "Empty": ""
+    "Empty": "",
+    "CreatedOn": "2024-05-01T12:34:56.000Z",
+    "ReviewedAt": "2024-01-01T10:00:00.1234567+02:00"
   },
   "type": "Microsoft.Insights/dataCollectionRules"
 }
