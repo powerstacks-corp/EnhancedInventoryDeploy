@@ -54,6 +54,11 @@
 .PARAMETER BackupDirectory
   Folder for the backup files. Defaults to the folder that holds this script.
 
+.PARAMETER TableName
+  The table the DCR writes the Custom-PowerStacksAppInventory_CL stream to. Defaults to
+  PowerStacksAppInventory_CL; change it only for a test table. The script refuses to run when
+  the DCR's data flow for the stream writes to a different table.
+
 .EXAMPLE
   .\Update-PowerStacksAppInventorySchema.ps1 -SubscriptionId "<subId>" -ResourceGroupName "<rg>" -WorkspaceName "<lawName>" -DcrResourceId "<dcrResourceId>" -WhatIf
 
@@ -87,14 +92,17 @@ param(
 
   [string]$RollbackFrom,
 
-  [string]$BackupDirectory = $PSScriptRoot
+  [string]$BackupDirectory = $PSScriptRoot,
+
+  [ValidatePattern('^[A-Za-z0-9_]+_CL$')]
+  [string]$TableName = 'PowerStacksAppInventory_CL'
 )
 
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 
-$TableName  = 'PowerStacksAppInventory_CL'
-$StreamName = "Custom-$TableName"
+# The stream the inventory script posts to. Its data flow writes to $TableName.
+$StreamName = 'Custom-PowerStacksAppInventory_CL'
 $TableApiVersion = '2022-10-01'
 $DcrApiVersion   = '2024-03-11'
 
@@ -305,21 +313,26 @@ if ($RollbackFrom) {
 
 # ---------------- Update ----------------
 
-# 1. Read both, and back them up.
-$tableText = Get-ArmText 'Table read' $tableUrl
-$dcrText   = Get-ArmText 'DCR read' $dcrUrl
-$table = $tableText | ConvertFrom-Json
-$dcr   = $dcrText | ConvertFrom-Json
+# 1. Read the DCR, check that it writes to this table and workspace, then read the table. Back up both.
+$dcrText = Get-ArmText 'DCR read' $dcrUrl
+$dcr     = $dcrText | ConvertFrom-Json
 
-# The DCR must send the App Inventory stream to this workspace, or the table and the DCR won't match.
+# The DCR must send the App Inventory stream to this table and workspace, or the table and the DCR won't match.
 $flow = @($dcr.properties.dataFlows | Where-Object { @($_.streams) -contains $StreamName })
 if (-not $flow) { throw "The DCR has no data flow for '$StreamName'. Check -DcrResourceId. Nothing was changed." }
+$outputStream = if ($flow[0].PSObject.Properties['outputStream'] -and $flow[0].outputStream) { [string]$flow[0].outputStream } else { $StreamName }
+if ($outputStream -ne "Custom-$TableName") {
+  throw "The DCR writes '$StreamName' to '$outputStream', not to table '$TableName'. Check -DcrResourceId and -TableName. Nothing was changed."
+}
 $laDestinations = @()
 if ($dcr.properties.destinations.PSObject.Properties['logAnalytics']) { $laDestinations = @($dcr.properties.destinations.logAnalytics) }
 $targets = @($laDestinations | Where-Object { @($flow[0].destinations) -contains $_.name } | ForEach-Object { [string]$_.workspaceResourceId })
 if (-not ($targets | Where-Object { $_ -eq $workspaceId })) {
   throw "The DCR sends '$StreamName' to '$($targets -join ', ')', not to workspace '$WorkspaceName' in resource group '$ResourceGroupName'. Check the parameters. Nothing was changed."
 }
+
+$tableText = Get-ArmText 'Table read' $tableUrl
+$table     = $tableText | ConvertFrom-Json
 
 $tableMissing  = Get-MissingColumns @($table.properties.schema.columns) "Table $TableName"
 $streamMissing = Get-MissingColumns (Get-StreamColumns $dcr) "DCR stream $StreamName"

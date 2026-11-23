@@ -50,18 +50,22 @@ BeforeAll {
   }
 
   function script:Get-ExpectedPut([string]$DcrText) {
-    # The fixture as read, minus server-set properties, plus the 22 columns appended to the App Inventory stream.
+    # The fixture as read, minus server-set properties, plus the missing App Usage columns appended to the App Inventory stream.
     $d = Remove-ReadOnly ($DcrText | ConvertFrom-Json)
     $s = $d.properties.streamDeclarations.'Custom-PowerStacksAppInventory_CL'
-    $s.columns = @($s.columns) + @($script:NewColumns | ForEach-Object { [pscustomobject]@{ name = $_.name; type = $_.type } })
+    $have = @($s.columns | ForEach-Object name)
+    $s.columns = @($s.columns) + @($script:NewColumns | Where-Object { $have -notcontains $_.name } | ForEach-Object { [pscustomobject]@{ name = $_.name; type = $_.type } })
     $d
   }
 
   function script:New-FakeArm([string]$TableFixture, [string]$DcrFixture) {
     # The fixtures are ASCII and escape their non-ASCII characters; serve those as real UTF-8, as Azure does.
     $served = (Read-Fixture $DcrFixture).Replace('é', [string][char]0xE9)
+    $tableText = Read-Fixture $TableFixture
     $global:FakeArm = @{
-      table  = Read-Fixture $TableFixture
+      TableName = ($tableText | ConvertFrom-Json).name
+      DcrId  = ($served | ConvertFrom-Json).id
+      table  = $tableText
       dcr    = $served
       ServedDcr = $served
       Calls  = New-Object System.Collections.Generic.List[string]
@@ -89,7 +93,8 @@ BeforeAll {
     }
     $method = $a[[Array]::IndexOf($a, '--method') + 1]
     $url    = $a[[Array]::IndexOf($a, '--url') + 1]
-    $kind   = if ($url -match '/tables/PowerStacksAppInventory_CL\?') { 'table' } elseif ($url -match '/dataCollectionRules/dcr-PowerStacksInventory\?') { 'dcr' } else { 'unknown' }
+    # Only the fixture's table and DCR exist; any other URL is a 404.
+    $kind   = if ($url -like "*/tables/$($arm.TableName)?*") { 'table' } elseif ($url -like "$($arm.DcrId)?*") { 'dcr' } else { 'unknown' }
     $arm.Calls.Add("$method $kind")
     if ($kind -eq 'unknown') { Write-Output "ERROR: (ResourceNotFound) $url"; $global:LASTEXITCODE = 3; return }
     if ($arm.Fail -contains "$method $kind") {
@@ -264,6 +269,30 @@ Describe 'Update-PowerStacksAppInventorySchema' {
       [IO.File]::WriteAllText($file, (Read-Fixture 'lab-dcr-before.json'), $script:Utf8)
       $global:FakeArm.Fail = @('put dcr')
       { Invoke-Updater @{ RollbackFrom = $file } } | Should -Throw '*DCR rollback (PUT) failed*'
+    }
+  }
+
+  Context 'Partly updated DCR and a test table (shape of the lab Phase 0 test resources)' {
+    It 'adds only the missing columns to the table named by -TableName and to the stream, preserving the rest' {
+      New-FakeArm 'test-table-partial.json' 'test-dcr-partial.json'
+      $testDcrId = "/subscriptions/$script:Sub/resourceGroups/rg-test/providers/Microsoft.Insights/dataCollectionRules/dcr-test"
+      $out = Invoke-Updater @{ DcrResourceId = $testDcrId; TableName = 'PowerStacksAppInventoryTest_CL' }
+      Get-Writes | Should -Be @('patch table', 'put dcr')
+      $out | Should -Match 'Table: added 3 columns'
+      $out | Should -Match 'DCR: added 3 columns'
+
+      $patch = ($global:FakeArm.Bodies | Where-Object Call -eq 'patch table').Text | ConvertFrom-Json
+      $patch.properties.schema.name | Should -BeExactly 'PowerStacksAppInventoryTest_CL'
+      @($patch.properties.schema.columns | Select-Object -Last 3 | ForEach-Object { "$($_.name):$($_.type)" }) | Should -Be @('RunId_g:string', 'RowIndex_d:real', 'RowCount_d:real')
+      $put = ($global:FakeArm.Bodies | Where-Object Call -eq 'put dcr').Text | ConvertFrom-Json
+      @(Compare-Json (Get-ExpectedPut (Read-Fixture 'test-dcr-partial.json')) $put) | Should -BeNullOrEmpty
+    }
+
+    It 'refuses to run when the DCR writes the stream to a table other than -TableName, before reading any table' {
+      New-FakeArm 'test-table-partial.json' 'test-dcr-partial.json'
+      $testDcrId = "/subscriptions/$script:Sub/resourceGroups/rg-test/providers/Microsoft.Insights/dataCollectionRules/dcr-test"
+      { Invoke-Updater @{ DcrResourceId = $testDcrId } } | Should -Throw "*writes 'Custom-PowerStacksAppInventory_CL' to 'Custom-PowerStacksAppInventoryTest_CL', not to table 'PowerStacksAppInventory_CL'*"
+      @($global:FakeArm.Calls) | Should -Be @('get dcr')
     }
   }
 

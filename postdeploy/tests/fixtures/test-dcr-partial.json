@@ -1,0 +1,178 @@
+{
+  "properties": {
+    "immutableId": "dcr-00000000000000000000000000000000",
+    "dataCollectionEndpointId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.Insights/dataCollectionEndpoints/dce-PowerStacksInventory",
+    "streamDeclarations": {
+      "Custom-PowerStacksAppInventory_CL": {
+        "columns": [
+          {
+            "name": "TimeGenerated",
+            "type": "datetime"
+          },
+          {
+            "name": "ComputerName_s",
+            "type": "string"
+          },
+          {
+            "name": "ManagedDeviceID_g",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps1_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps2_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps3_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps4_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps5_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps6_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps7_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps8_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps9_s",
+            "type": "string"
+          },
+          {
+            "name": "InstalledApps10_s",
+            "type": "string"
+          },
+          {
+            "name": "AppUsageEnabled_b",
+            "type": "boolean"
+          },
+          {
+            "name": "WatchingSince_t",
+            "type": "datetime"
+          },
+          {
+            "name": "AppUsageScriptVersion_s",
+            "type": "string"
+          },
+          {
+            "name": "MappingsVersion_s",
+            "type": "string"
+          },
+          {
+            "name": "CustomerMappingsHash_s",
+            "type": "string"
+          },
+          {
+            "name": "UnmatchedExeCount_d",
+            "type": "real"
+          },
+          {
+            "name": "ProfilesFound_d",
+            "type": "real"
+          },
+          {
+            "name": "ProfilesRead_d",
+            "type": "real"
+          },
+          {
+            "name": "AppUsageCollectionStatus_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage1_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage2_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage3_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage4_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage5_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage6_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage7_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage8_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage9_s",
+            "type": "string"
+          },
+          {
+            "name": "ExeUsage10_s",
+            "type": "string"
+          }
+        ]
+      }
+    },
+    "destinations": {
+      "logAnalytics": [
+        {
+          "workspaceResourceId": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-inventory/providers/Microsoft.OperationalInsights/workspaces/law-inventory",
+          "workspaceId": "11111111-1111-1111-1111-111111111111",
+          "name": "law"
+        }
+      ]
+    },
+    "dataFlows": [
+      {
+        "streams": [
+          "Custom-PowerStacksAppInventory_CL"
+        ],
+        "destinations": [
+          "law"
+        ],
+        "transformKql": "source | extend TimeGenerated = now()",
+        "outputStream": "Custom-PowerStacksAppInventoryTest_CL"
+      }
+    ],
+    "provisioningState": "Succeeded"
+  },
+  "location": "eastus",
+  "tags": {
+    "purpose": "test"
+  },
+  "id": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-test/providers/Microsoft.Insights/dataCollectionRules/dcr-test",
+  "name": "dcr-test",
+  "type": "Microsoft.Insights/dataCollectionRules",
+  "etag": "\"00000000-0000-0000-0000-000000000000\"",
+  "systemData": {
+    "createdBy": "admin@contoso.com",
+    "createdByType": "User",
+    "createdAt": "2026-11-20T23:34:51.0512919Z",
+    "lastModifiedBy": "admin@contoso.com",
+    "lastModifiedByType": "User",
+    "lastModifiedAt": "2026-11-20T23:34:51.0512919Z"
+  }
+}

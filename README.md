@@ -29,7 +29,6 @@ Click the button below to deploy the required Azure resources:
   - `PowerStacksDeviceInventory_CL`
   - `PowerStacksAppInventory_CL`
   - `PowerStacksDriverInventory_CL`
-  - `PowerStacksAppUsage_CL`
 - Data Collection Endpoint (DCE)
 - Data Collection Rule (DCR) with one stream per table
 - Outputs required by the inventory scripts:
@@ -153,11 +152,13 @@ Configure the same values in the macOS inventory script:
 - `DceURI`
 - `DcrImmutableId`
 
-### App Usage collector
+### App Usage
 
-The `PowerStacksAppUsage_CL` table is populated by a separate Windows-only collector that reads the local SRUM database to track per-(user, app) usage. It uses the same DCE URI, DCR immutable ID, and Entra app registration as the inventory scripts, so once those values are captured from the deployment output no additional Azure configuration is needed.
+App Usage is part of the Windows inventory script. It writes only to `PowerStacksAppInventory_CL`: usage fields inside the installed-app entries, and the App Usage columns described in [PowerStacksAppInventory_CL](#powerstacksappinventory_cl). It uses the same DCE URI, DCR immutable ID, and Entra app registration as the rest of the inventory, so it needs no other Azure resources.
 
-The collector is shipped from the private `intune-app-usage` repository to customers who have licensed the app usage feature. Customers do not need to do anything in this repository to enable it beyond running the standard deployment.
+New deployments already have the App Usage columns. For a deployment made before App Usage, see [Add the App Usage columns to an existing deployment](#add-the-app-usage-columns-to-an-existing-deployment) before you turn metering on.
+
+`PowerStacksAppUsage_CL` is a legacy table from the earlier prototype collector. App Usage doesn't use it. `postdeploy/New-PowerStacksInventoryTables.ps1` still creates it, pending a decision on whether to remove it; the **Deploy to Azure** template and Terraform don't create it.
 
 ---
 
@@ -273,7 +274,7 @@ This script retrieves and displays the full DCR configuration and is useful for 
 
 ## Custom table schemas
 
-All four tables share a common identity header (`TimeGenerated`, `ComputerName_s`, `ManagedDeviceID_g`). Each table also carries the data specific to its inventory type.
+The tables share a common identity header (`TimeGenerated`, `ComputerName_s`, `ManagedDeviceID_g`). Each table also carries the data specific to its inventory type.
 
 ### PowerStacksDeviceInventory_CL
 
@@ -343,7 +344,9 @@ New deployments from this repository (the **Deploy to Azure** button, `infra/mai
 
 Same slot convention. Each `ListedDrivers` slot holds a chunk of the driver list.
 
-### PowerStacksAppUsage_CL
+### PowerStacksAppUsage_CL (legacy)
+
+This table is from the earlier prototype collector and is no longer used: App Usage writes only to `PowerStacksAppInventory_CL`. `postdeploy/New-PowerStacksInventoryTables.ps1` still creates it, pending a decision on whether to remove it. Its schema is listed here for reference only.
 
 | Column | Type | Description |
 |---|---|---|
@@ -364,24 +367,7 @@ Same slot convention. Each `ListedDrivers` slot holds a chunk of the driver list
 | `FirstSeen` | datetime | First time this (user, app) ledger entry was written. |
 | `InFocusSeconds` | integer | Accumulated in-focus or tracked-activity time. |
 
-The `PowerStacksAppUsage_CL` schema is per-(user, app) rather than per-device, because app usage is a user-attributable signal. The collector that produces these rows lives in the private `intune-app-usage` repository and uses the Windows SRUM database as its source.
-
-Typical query patterns:
-
-```kql
-// Per-app usage rollup across all users, last 30 days
-PowerStacksAppUsage_CL
-| where LastUsedTime > ago(30d)
-| where isnotempty(ResolvedAppName_s)
-| summarize total = sum(InFocusSeconds), last = max(LastUsedTime) by ResolvedAppName_s
-
-// License reclamation candidates: users who haven't touched an app in 90 days
-PowerStacksAppUsage_CL
-| where ResolvedAppName_s == "Microsoft 365 Apps for enterprise - en-us"
-| where UserSidType_s in ("CloudOnly", "Hybrid")
-| summarize last = max(LastUsedTime) by AadUserId_g, UPN_s
-| where last < ago(90d)
-```
+The prototype schema was per user and app rather than per device.
 
 ---
 

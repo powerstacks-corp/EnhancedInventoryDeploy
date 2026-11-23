@@ -7,7 +7,8 @@
     - PowerStacksDeviceInventory_CL
     - PowerStacksAppInventory_CL
     - PowerStacksDriverInventory_CL
-    - PowerStacksAppUsage_CL
+    - PowerStacksAppUsage_CL (legacy table from the prototype App Usage collector; no longer
+      used, kept pending a decision. App Usage writes only to PowerStacksAppInventory_CL.)
 
   This script does not create a workspace, DCR, DCE, or role assignments.
 
